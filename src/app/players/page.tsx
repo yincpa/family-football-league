@@ -13,6 +13,8 @@ function PlayersTable() {
   // TEMP: team/season/week come from the URL until sign-in + a "my team"
   // selector exist, e.g. /players?team=<uuid>&season=2026&week=1
   const teamId = params.get("team") ?? "";
+  const seasonDefaulted = params.get("season") === null;
+  const weekDefaulted = params.get("week") === null;
   const season = Number(params.get("season") ?? new Date().getFullYear());
   const week = Number(params.get("week") ?? 1);
 
@@ -78,6 +80,12 @@ function PlayersTable() {
   return (
     <main className="mx-auto max-w-3xl p-6">
       <h1 className="text-2xl font-semibold mb-1">Available Players</h1>
+      <p className="text-xs font-mono text-neutral-400 mb-2">
+        Season {season} · Week {week}
+        {(seasonDefaulted || weekDefaulted) && (
+          <span className="text-amber-600"> (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)</span>
+        )}
+      </p>
       <p className="text-sm text-neutral-500 mb-6">
         Players not yet used by this team, active this week. Click a column to sort.
       </p>
