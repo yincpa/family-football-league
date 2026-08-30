@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getTeamLineup } from "@/lib/queries";
+import { getTeamLineup, getMyTeamId } from "@/lib/queries";
 import { ROSTER_SLOTS } from "@/lib/types";
 
 export default async function RosterPage({
@@ -8,13 +8,17 @@ export default async function RosterPage({
   searchParams: Promise<{ team?: string; season?: string; week?: string }>;
 }) {
   const sp = await searchParams;
-  const teamId = sp.team ?? "";
   const seasonDefaulted = sp.season === undefined;
   const weekDefaulted = sp.week === undefined;
   const season = Number(sp.season ?? new Date().getFullYear());
   const week = Number(sp.week ?? 1);
 
   const supabase = await createClient();
+  // The middleware already requires a logged-in user to reach this page —
+  // ?team= still works as an override (e.g. a commissioner peeking at
+  // another team in the same league), but normally we resolve the caller's
+  // own team automatically instead of needing it pasted into the URL.
+  const teamId = sp.team ?? (await getMyTeamId(supabase)) ?? "";
   const lineup = teamId ? await getTeamLineup(supabase, teamId, season, week) : [];
 
   type StatsRow = {
@@ -71,7 +75,11 @@ export default async function RosterPage({
 
       {!teamId && (
         <p className="text-sm text-amber-600 border border-amber-300 rounded-md p-3 mb-4">
-          Add a team to the URL to preview this page, e.g. <code>?team=&lt;team-id&gt;&amp;week=1</code>.
+          No team is assigned to your account yet. Visit{" "}
+          <a href="/account" className="underline underline-offset-4">
+            your account page
+          </a>{" "}
+          for the ID to give the commissioner.
         </p>
       )}
 

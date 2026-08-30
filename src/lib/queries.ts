@@ -15,6 +15,28 @@ export async function getStandings(
   return data ?? [];
 }
 
+/**
+ * The team id owned by the currently logged-in user, or null if they're
+ * not logged in or don't have a team assigned yet. Replaces the old
+ * "?team=<uuid> in the URL" workaround now that real sign-in exists.
+ */
+export async function getMyTeamId(supabase: SupabaseClient): Promise<string | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("owner_user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.id ?? null;
+}
+
 export async function getTeamLineup(
   supabase: SupabaseClient,
   teamId: string,

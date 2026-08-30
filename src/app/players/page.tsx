@@ -3,21 +3,22 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { getAvailablePlayers } from "@/lib/queries";
+import { getAvailablePlayers, getMyTeamId } from "@/lib/queries";
 import type { AvailablePlayer } from "@/lib/types";
 
 type SortKey = "full_name" | "position" | "nfl_team" | "fantasy_points";
 
 function PlayersTable() {
   const params = useSearchParams();
-  // TEMP: team/season/week come from the URL until sign-in + a "my team"
-  // selector exist, e.g. /players?team=<uuid>&season=2026&week=1
-  const teamId = params.get("team") ?? "";
+  // ?team=<uuid> still works as an override; normally we resolve the
+  // logged-in user's own team automatically instead.
+  const teamIdParam = params.get("team") ?? "";
   const seasonDefaulted = params.get("season") === null;
   const weekDefaulted = params.get("week") === null;
   const season = Number(params.get("season") ?? new Date().getFullYear());
   const week = Number(params.get("week") ?? 1);
 
+  const [teamId, setTeamId] = useState<string>("");
   const [players, setPlayers] = useState<AvailablePlayer[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("fantasy_points");
   const [sortDesc, setSortDesc] = useState(true);
@@ -25,7 +26,6 @@ function PlayersTable() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!teamId) return;
     // Loading/error state is intentionally set from inside this effect as
     // a fetch-on-param-change pattern — fine for a client component like
     // this one (no Server Component purity constraints apply here).
@@ -36,7 +36,11 @@ function PlayersTable() {
       setLoading(true);
       setErrorMsg(null);
       try {
-        const data = await getAvailablePlayers(supabase, teamId, season, week);
+        const resolvedTeamId = teamIdParam || (await getMyTeamId(supabase)) || "";
+        if (cancelled) return;
+        setTeamId(resolvedTeamId);
+        if (!resolvedTeamId) return;
+        const data = await getAvailablePlayers(supabase, resolvedTeamId, season, week);
         if (!cancelled) setPlayers(data);
       } catch (e) {
         if (!cancelled) setErrorMsg(e instanceof Error ? e.message : String(e));
@@ -49,7 +53,7 @@ function PlayersTable() {
     return () => {
       cancelled = true;
     };
-  }, [teamId, season, week]);
+  }, [teamIdParam, season, week]);
 
   const sorted = useMemo(() => {
     const copy = [...players];
@@ -90,10 +94,13 @@ function PlayersTable() {
         Players not yet used by this team, active this week. Click a column to sort.
       </p>
 
-      {!teamId && (
+      {!loading && !teamId && (
         <p className="text-sm text-amber-600 border border-amber-300 rounded-md p-3 mb-4">
-          Add a team to the URL to preview this page, e.g. <code>?team=&lt;team-id&gt;</code> — a
-          team switcher will replace this once sign-in is wired up.
+          No team is assigned to your account yet. Visit{" "}
+          <a href="/account" className="underline underline-offset-4">
+            your account page
+          </a>{" "}
+          for the ID to give the commissioner.
         </p>
       )}
       {errorMsg && <p className="text-sm text-red-600 mb-4">{errorMsg}</p>}
