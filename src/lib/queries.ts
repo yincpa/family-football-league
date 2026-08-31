@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AvailablePlayer, Lineup, StandingsRow } from "./types";
+import type { AvailablePlayer, Lineup, Position, StandingsRow } from "./types";
 
 export async function getStandings(
   supabase: SupabaseClient,
@@ -55,10 +55,54 @@ export async function getTeamLineup(
 }
 
 /**
+ * Player ids this team cannot field in `week`: either already used in a
+ * strictly earlier week this season, or already placed somewhere in this
+ * week's own lineup (no double-rostering the same player in two slots).
+ *
+ * Deliberately NOT the same thing as the `team_used_players` view, which
+ * counts every week a team has ever rostered a player regardless of week —
+ * that's fine for a ledger, but wrong for "what can I use in week N," since
+ * our test data has the whole season auto-filled in advance. A player
+ * slotted for week 9 shouldn't block a week 1 pick just because next week's
+ * lineup already happens to exist in the table.
+ */
+export async function getUnavailablePlayerIds(
+  supabase: SupabaseClient,
+  teamId: string,
+  season: number,
+  week: number
+): Promise<Set<string>> {
+  const [priorRes, thisWeekRes] = await Promise.all([
+    supabase
+      .from("lineups")
+      .select("player_id")
+      .eq("team_id", teamId)
+      .eq("season", season)
+      .lt("week", week)
+      .not("player_id", "is", null),
+    supabase
+      .from("lineups")
+      .select("player_id")
+      .eq("team_id", teamId)
+      .eq("season", season)
+      .eq("week", week)
+      .not("player_id", "is", null),
+  ]);
+
+  if (priorRes.error) throw priorRes.error;
+  if (thisWeekRes.error) throw thisWeekRes.error;
+
+  const ids = new Set<string>();
+  for (const row of priorRes.data ?? []) if (row.player_id) ids.add(row.player_id);
+  for (const row of thisWeekRes.data ?? []) if (row.player_id) ids.add(row.player_id);
+  return ids;
+}
+
+/**
  * Players eligible for this team this week: active, not on a bye, and not
- * already used by this team in a previous week (the "used players" rule).
- * Two queries + a client-side filter, rather than one complex SQL join —
- * simple, and fine at this league's scale (a few hundred players/week).
+ * already unavailable per getUnavailablePlayerIds above. Two queries + a
+ * client-side filter, rather than one complex SQL join — simple, and fine
+ * at this league's scale (a few hundred players/week).
  */
 export async function getAvailablePlayers(
   supabase: SupabaseClient,
@@ -66,8 +110,8 @@ export async function getAvailablePlayers(
   season: number,
   week: number
 ): Promise<AvailablePlayer[]> {
-  const [usedRes, statsRes] = await Promise.all([
-    supabase.from("team_used_players").select("player_id").eq("team_id", teamId),
+  const [unavailable, statsRes] = await Promise.all([
+    getUnavailablePlayerIds(supabase, teamId, season, week),
     supabase
       .from("player_week_stats")
       .select("*, nfl_players(*)")
@@ -77,14 +121,12 @@ export async function getAvailablePlayers(
       .not("kickoff", "is", null),
   ]);
 
-  if (usedRes.error) throw usedRes.error;
   if (statsRes.error) throw statsRes.error;
 
-  const usedIds = new Set((usedRes.data ?? []).map((r) => r.player_id));
   const now = Date.now();
 
   return (statsRes.data ?? [])
-    .filter((row) => !usedIds.has(row.player_id) && row.nfl_players)
+    .filter((row) => !unavailable.has(row.player_id) && row.nfl_players)
     .map((row) => ({
       ...row.nfl_players,
       fantasy_points: row.fantasy_points,
@@ -92,4 +134,23 @@ export async function getAvailablePlayers(
       active: row.active,
       locked: row.kickoff ? new Date(row.kickoff).getTime() <= now : false,
     }));
+}
+
+/**
+ * Candidates actually selectable for a swap into a given slot: eligible
+ * players (see getAvailablePlayers) narrowed to the slot's allowed
+ * positions and to games that haven't started yet (a locked player can be
+ * viewed on the Players tab, but can never be swapped in).
+ */
+export async function getEligibleCandidates(
+  supabase: SupabaseClient,
+  teamId: string,
+  season: number,
+  week: number,
+  positions: Position[]
+): Promise<AvailablePlayer[]> {
+  const players = await getAvailablePlayers(supabase, teamId, season, week);
+  return players
+    .filter((p) => positions.includes(p.position) && !p.locked)
+    .sort((a, b) => b.fantasy_points - a.fantasy_points);
 }
