@@ -5,6 +5,7 @@ import type {
   CommissionerTeamRow,
   Lineup,
   Position,
+  Profile,
   StandingsRow,
 } from "./types";
 
@@ -274,6 +275,19 @@ export async function getCommissionerTeams(
     ...t,
     owner_email: emailById.get(t.owner_user_id) ?? null,
   }));
+}
+
+/**
+ * Every account that has ever signed up (id + email from `profiles`),
+ * sorted by email. Populates the owner-picker dropdowns on the
+ * commissioner page so setting up or reassigning a team is "pick a name
+ * from a list" instead of finding and pasting a raw user id.
+ */
+export async function getAllProfiles(supabase: SupabaseClient): Promise<Profile[]> {
+  const { data, error } = await supabase.from("profiles").select("id, email").order("email");
+
+  if (error) throw error;
+  return data ?? [];
 }
 
 /**
