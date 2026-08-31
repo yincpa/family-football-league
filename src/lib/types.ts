@@ -62,10 +62,34 @@ export interface StandingsRow {
 }
 
 /** A player joined with this week's stats, annotated with lock status —
- * the shape the "available players" tab and roster editor both use. */
+ * the shape the "available players" tab and roster editor both use.
+ *
+ * The raw box-score fields (pass_yards, receptions, def_sacks, etc.) are
+ * only ever a subset for any given player -- a QB never has fg_made, a
+ * kicker never has pass_yards -- so unused ones come back null rather than
+ * 0, to distinguish "doesn't apply to this position" from "did nothing." */
 export interface AvailablePlayer extends NflPlayer {
   fantasy_points: number;
   kickoff: string | null;
   active: boolean;
   locked: boolean; // kickoff has already passed
+  avg_points: number | null; // season-to-date average over prior weeks, null if no history yet
+  pass_yards: number | null;
+  pass_tds: number | null;
+  pass_ints: number | null;
+  rush_yards: number | null;
+  rush_tds: number | null;
+  receptions: number | null;
+  rec_yards: number | null;
+  rec_tds: number | null;
+  fumbles_lost: number | null;
+  fg_made: number | null;
+  fg_att: number | null;
+  pat_made: number | null;
+  pat_att: number | null;
+  def_sacks: number | null;
+  def_ints: number | null;
+  def_fumble_rec: number | null;
+  def_tds: number | null;
+  points_allowed: number | null;
 }
