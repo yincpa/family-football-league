@@ -44,6 +44,26 @@ export interface Team {
   team_name: string;
 }
 
+/** A league the logged-in user commissions (leagues.commissioner_user_id
+ * matches them), for the /commissioner view. */
+export interface CommissionedLeague {
+  id: string;
+  name: string;
+  season: number;
+}
+
+/** A team as shown on the commissioner view -- the owner's email comes
+ * from `profiles` (a mirror of auth.users, which isn't queryable directly
+ * from the browser), joined client-side rather than via a DB foreign key
+ * since owner_user_id and profiles.id both reference auth.users
+ * independently, not each other. */
+export interface CommissionerTeamRow {
+  id: string;
+  team_name: string;
+  owner_user_id: string;
+  owner_email: string | null;
+}
+
 export interface Lineup {
   id: string;
   team_id: string;
