@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
+/* Deliberately fixed to light mode, not auto-following the visitor's OS
+   dark/light setting. Every color in this app (hover states, status
+   badges, warning boxes, etc.) was chosen assuming a white background with
+   dark text -- letting the background/foreground flip via
+   prefers-color-scheme without every component also having a matching
+   dark-mode style caused real bugs (e.g. a near-white hover highlight
+   landing on top of near-white flipped text, making rows unreadable).
+   Pinning to light keeps every family member's screen consistent. */
 :root {
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -10,13 +19,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
