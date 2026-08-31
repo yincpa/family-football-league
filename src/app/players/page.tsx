@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getAvailablePlayers, getMyTeamId } from "@/lib/queries";
 import type { AvailablePlayer } from "@/lib/types";
 
-type SortKey = "full_name" | "position" | "nfl_team" | "fantasy_points";
+type SortKey = "full_name" | "position" | "nfl_team" | "fantasy_points" | "locked";
 
 function PlayersTable() {
   const params = useSearchParams();
@@ -60,7 +60,12 @@ function PlayersTable() {
     copy.sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+      const cmp =
+        typeof av === "number" && typeof bv === "number"
+          ? av - bv
+          : typeof av === "boolean" && typeof bv === "boolean"
+          ? Number(av) - Number(bv)
+          : String(av).localeCompare(String(bv));
       return sortDesc ? -cmp : cmp;
     });
     return copy;
@@ -79,6 +84,7 @@ function PlayersTable() {
     { key: "position", label: "Pos" },
     { key: "nfl_team", label: "Team" },
     { key: "fantasy_points", label: `Wk ${week} Pts` },
+    { key: "locked", label: "Status" },
   ];
 
   return (
@@ -120,7 +126,6 @@ function PlayersTable() {
                   {sortKey === c.key ? (sortDesc ? " ↓" : " ↑") : ""}
                 </th>
               ))}
-              <th className="py-2">Status</th>
             </tr>
           </thead>
           <tbody>
