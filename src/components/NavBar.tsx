@@ -34,13 +34,14 @@ export default function NavBar() {
           </Link>
           {email && (
             <>
-              {/* TEMP: hardcoded to the 2025 test-data season/week until the
-                  real 2026 season kicks off in September — remove the query
-                  string once the season default should point at the live year. */}
-              <Link href="/players?season=2025&week=1" className="hover:underline underline-offset-4">
+              {/* TEMP: hardcoded to season 2026 week 1 (the live season) so
+                  everyone lands on the real league by default — remove this
+                  query string entirely once the pages' own defaulting logic
+                  is trusted to always pick the right season/week on its own. */}
+              <Link href="/players?season=2026&week=1" className="hover:underline underline-offset-4">
                 Players
               </Link>
-              <Link href="/roster?season=2025&week=1" className="hover:underline underline-offset-4">
+              <Link href="/roster?season=2026&week=1" className="hover:underline underline-offset-4">
                 My Lineup
               </Link>
               <Link href="/account" className="hover:underline underline-offset-4">
