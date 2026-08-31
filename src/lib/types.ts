@@ -64,6 +64,14 @@ export interface CommissionerTeamRow {
   owner_email: string | null;
 }
 
+/** A signed-up account, for the commissioner's owner-picker dropdown --
+ * lets the commissioner choose a family member by email instead of typing
+ * in a raw user id. */
+export interface Profile {
+  id: string;
+  email: string | null;
+}
+
 export interface Lineup {
   id: string;
   team_id: string;
