@@ -1,0 +1,45 @@
+name: Refresh scores and auto-fill lineups
+
+# Runs every 30 minutes during NFL game windows (Thu/Sun/Mon evenings and
+# all day Sunday, roughly noon-midnight Eastern) rather than around the
+# clock, to stay well within GitHub Actions' free monthly minutes. GitHub
+# Actions cron is always UTC — these windows are approximate (NFL kickoff
+# times shift a little across the season, and US Daylight Saving adds a
+# ~1 hour wobble at the edges), which is fine here: better to run a few
+# extra times with nothing new to report than to miss a window.
+#
+# workflow_dispatch lets you (or Claude) trigger a run manually any time
+# from the Actions tab on GitHub, e.g. to test this without waiting for a
+# scheduled window.
+on:
+  schedule:
+    # Thursday Night Football window (~7pm-midnight ET Thursday)
+    - cron: "*/30 23 * * 4"
+    - cron: "*/30 0-4 * * 5"
+    # Sunday slate, early games through Sunday Night Football
+    - cron: "*/30 16-23 * * 0"
+    - cron: "*/30 0-4 * * 1"
+    # Monday Night Football window
+    - cron: "*/30 23 * * 1"
+    - cron: "*/30 0-4 * * 2"
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season to refresh (defaults to 2026, the live season — only override for testing)"
+        required: false
+        default: "2026"
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r scripts/requirements.txt
+      - run: python scripts/refresh_scores.py
+        env:
+          SUPABASE_URL: "https://dmnqycwvdpyxaxuieumz.supabase.co"
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REFRESH_SEASON: ${{ github.event.inputs.season || '2026' }}
