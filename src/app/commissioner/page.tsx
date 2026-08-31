@@ -4,20 +4,39 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   createTeam,
+  getAllProfiles,
   getCommissionedLeagues,
   getCommissionerTeams,
   reassignTeamOwner,
 } from "@/lib/queries";
-import type { CommissionedLeague, CommissionerTeamRow } from "@/lib/types";
+import type { CommissionedLeague, CommissionerTeamRow, Profile } from "@/lib/types";
 
-// Loose UUID shape check -- just a friendlier first-pass error than
-// waiting on a raw Postgres foreign-key failure for an obvious typo. The
-// database (owner_user_id references auth.users) is still the real check:
-// a well-formed but nonexistent id fails there, and that error is shown
-// as-is rather than silently swallowed.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function OwnerSelect({
+  profiles,
+  value,
+  onChange,
+}: {
+  profiles: Profile[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="text-sm border border-neutral-300 rounded px-2 py-1 bg-white"
+    >
+      <option value="">Choose a family member…</option>
+      {profiles.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.email ?? p.id}
+        </option>
+      ))}
+    </select>
+  );
+}
 
-function LeagueSection({ league }: { league: CommissionedLeague }) {
+function LeagueSection({ league, profiles }: { league: CommissionedLeague; profiles: Profile[] }) {
   const [teams, setTeams] = useState<CommissionerTeamRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -62,19 +81,18 @@ function LeagueSection({ league }: { league: CommissionedLeague }) {
     e.preventDefault();
     setCreateError(null);
     const name = newTeamName.trim();
-    const ownerId = newOwnerId.trim();
     if (!name) {
       setCreateError("Give the team a name.");
       return;
     }
-    if (!UUID_RE.test(ownerId)) {
-      setCreateError("That doesn't look like a valid user ID (should look like 8-4-4-4-12 hex characters).");
+    if (!newOwnerId) {
+      setCreateError("Choose an owner for the team.");
       return;
     }
     setCreating(true);
     try {
       const supabase = createClient();
-      await createTeam(supabase, league.id, name, ownerId);
+      await createTeam(supabase, league.id, name, newOwnerId);
       setNewTeamName("");
       setNewOwnerId("");
       setReloadKey((k) => k + 1);
@@ -87,15 +105,14 @@ function LeagueSection({ league }: { league: CommissionedLeague }) {
 
   async function handleReassign(teamId: string) {
     setReassignError(null);
-    const ownerId = reassignValue.trim();
-    if (!UUID_RE.test(ownerId)) {
-      setReassignError("That doesn't look like a valid user ID (should look like 8-4-4-4-12 hex characters).");
+    if (!reassignValue) {
+      setReassignError("Choose a new owner.");
       return;
     }
     setReassignBusy(true);
     try {
       const supabase = createClient();
-      await reassignTeamOwner(supabase, teamId, ownerId);
+      await reassignTeamOwner(supabase, teamId, reassignValue);
       setReassignOpenFor(null);
       setReassignValue("");
       setReloadKey((k) => k + 1);
@@ -136,13 +153,7 @@ function LeagueSection({ league }: { league: CommissionedLeague }) {
                   <td className="py-2">
                     {isOpen ? (
                       <div className="flex flex-col gap-1 max-w-xs">
-                        <input
-                          type="text"
-                          value={reassignValue}
-                          onChange={(e) => setReassignValue(e.target.value)}
-                          placeholder="New owner's user ID"
-                          className="text-sm border border-neutral-300 rounded px-2 py-1"
-                        />
+                        <OwnerSelect profiles={profiles} value={reassignValue} onChange={setReassignValue} />
                         {reassignError && <p className="text-xs text-red-600">{reassignError}</p>}
                         <div className="flex gap-2">
                           <button
@@ -200,13 +211,7 @@ function LeagueSection({ league }: { league: CommissionedLeague }) {
             placeholder="Team name"
             className="text-sm border border-neutral-300 rounded px-2 py-1"
           />
-          <input
-            type="text"
-            value={newOwnerId}
-            onChange={(e) => setNewOwnerId(e.target.value)}
-            placeholder="Owner's user ID (from their Account page)"
-            className="text-sm border border-neutral-300 rounded px-2 py-1"
-          />
+          <OwnerSelect profiles={profiles} value={newOwnerId} onChange={setNewOwnerId} />
           {createError && <p className="text-xs text-red-600">{createError}</p>}
           <button
             type="submit"
@@ -223,6 +228,7 @@ function LeagueSection({ league }: { league: CommissionedLeague }) {
 
 export default function CommissionerPage() {
   const [leagues, setLeagues] = useState<CommissionedLeague[] | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -230,8 +236,14 @@ export default function CommissionerPage() {
     async function run() {
       try {
         const supabase = createClient();
-        const data = await getCommissionedLeagues(supabase);
-        if (!cancelled) setLeagues(data);
+        const [leagueData, profileData] = await Promise.all([
+          getCommissionedLeagues(supabase),
+          getAllProfiles(supabase),
+        ]);
+        if (!cancelled) {
+          setLeagues(leagueData);
+          setProfiles(profileData);
+        }
       } catch (e) {
         if (!cancelled) setErrorMsg(e instanceof Error ? e.message : String(e));
       }
@@ -246,12 +258,8 @@ export default function CommissionerPage() {
     <main className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-semibold mb-1">Commissioner</h1>
       <p className="text-sm text-neutral-500 mb-6">
-        Create teams and assign them to family members. To assign someone, have them sign up first and
-        copy the user ID shown on their{" "}
-        <a href="/account" className="underline underline-offset-4">
-          Account page
-        </a>
-        , then paste it below.
+        Create teams and assign them to family members. Anyone you want to assign a team to needs to sign
+        up first — once they have an account, they&apos;ll show up in the dropdown below by their email.
       </p>
 
       {errorMsg && <p className="text-sm text-red-600 mb-4">{errorMsg}</p>}
@@ -266,7 +274,7 @@ export default function CommissionerPage() {
       )}
 
       {leagues?.map((league) => (
-        <LeagueSection key={league.id} league={league} />
+        <LeagueSection key={league.id} league={league} profiles={profiles} />
       ))}
     </main>
   );
