@@ -44,6 +44,13 @@ export default function NavBar() {
               <Link href="/roster?season=2026&week=1" className="hover:underline underline-offset-4">
                 My Lineup
               </Link>
+              {/* Shown to everyone signed in, not just the commissioner —
+                  the page itself checks leagues.commissioner_user_id and
+                  shows a "not a commissioner" message to anyone else, so
+                  there's no separate authorization check needed here. */}
+              <Link href="/commissioner" className="hover:underline underline-offset-4">
+                Commissioner
+              </Link>
               <Link href="/account" className="hover:underline underline-offset-4">
                 {email}
               </Link>
