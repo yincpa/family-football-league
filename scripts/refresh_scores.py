@@ -117,6 +117,60 @@ def score_defense_row(row, points_allowed):
 
 
 # ---------------------------------------------------------------------
+# Raw box-score stats — kept alongside fantasy_points (which used to be
+# the ONLY thing this script carried forward) so the app can show family
+# members what a player actually did, not just the final point total.
+# Column lists are shared with upsert_player_week_stats below so every row
+# written to Supabase has the same shape regardless of position.
+# ---------------------------------------------------------------------
+RAW_OFFENSE_COLS = [
+    "pass_yards", "pass_tds", "pass_ints", "rush_yards", "rush_tds",
+    "receptions", "rec_yards", "rec_tds", "fumbles_lost",
+    "fg_made", "fg_att", "pat_made", "pat_att",
+]
+RAW_DST_COLS = ["def_sacks", "def_ints", "def_fumble_rec", "def_tds"]
+RAW_STAT_COLS = RAW_OFFENSE_COLS + RAW_DST_COLS + ["points_allowed"]
+
+
+def row_raw_offense_stats(row):
+    if row["position"] == "K":
+        fg_made = (
+            row.get("fg_made_0_19", 0) + row.get("fg_made_20_29", 0) + row.get("fg_made_30_39", 0)
+            + row.get("fg_made_40_49", 0) + row.get("fg_made_50_59", 0) + row.get("fg_made_60_", 0)
+        )
+        return {
+            "fg_made": fg_made,
+            "fg_att": fg_made + row.get("fg_missed", 0),
+            "pat_made": row.get("pat_made", 0),
+            "pat_att": row.get("pat_made", 0) + row.get("pat_missed", 0),
+        }
+    return {
+        "pass_yards": row.get("passing_yards", 0),
+        "pass_tds": row.get("passing_tds", 0),
+        "pass_ints": row.get("passing_interceptions", 0),
+        "rush_yards": row.get("rushing_yards", 0),
+        "rush_tds": row.get("rushing_tds", 0),
+        "receptions": row.get("receptions", 0),
+        "rec_yards": row.get("receiving_yards", 0),
+        "rec_tds": row.get("receiving_tds", 0),
+        "fumbles_lost": (
+            row.get("sack_fumbles_lost", 0)
+            + row.get("rushing_fumbles_lost", 0)
+            + row.get("receiving_fumbles_lost", 0)
+        ),
+    }
+
+
+def row_raw_defense_stats(row):
+    return {
+        "def_sacks": row.get("def_sacks", 0),
+        "def_ints": row.get("def_interceptions", 0),
+        "def_fumble_rec": row.get("fumble_recovery_opp", 0),
+        "def_tds": row.get("def_tds", 0) + row.get("fumble_recovery_tds", 0) + row.get("special_teams_tds", 0),
+    }
+
+
+# ---------------------------------------------------------------------
 # Pool building — ported from league.py's build_weekly_pool, with one
 # fix: nflverse's `gametime` is documented as Eastern Time, not UTC. The
 # original prototype export parsed it as a naive timestamp and appended
@@ -168,6 +222,13 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
         return score_offense_row(row)
 
     pw["fantasy_points"] = pw.apply(row_points, axis=1)
+    raw = pw.apply(row_raw_offense_stats, axis=1, result_type="expand")
+    pw = pd.concat([pw, raw], axis=1)
+    # A few of our column names (e.g. "receptions", "pat_made") match names
+    # nflverse already uses in the source file — concat above duplicates
+    # those rather than overwriting, so drop the original and keep our
+    # freshly computed version (same values, just avoids ambiguous columns).
+    pw = pw.loc[:, ~pw.columns.duplicated(keep="last")]
 
     rw_slim = rw[["season", "week", "gsis_id", "team", "status"]].rename(columns={"gsis_id": "player_id"})
     pw = pw.merge(rw_slim, on=["season", "week", "player_id"], suffixes=("", "_roster"), how="left")
@@ -178,7 +239,7 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
 
     offense_pool = pw[[
         "player_id", "player_display_name", "position", "team", "week",
-        "fantasy_points", "kickoff", "active", "opp",
+        "fantasy_points", "kickoff", "active", "opp", *RAW_OFFENSE_COLS,
     ]].rename(columns={"player_display_name": "name", "opp": "opponent"})
 
     tw = tw[tw["week"] <= max_week].copy()
@@ -186,14 +247,18 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     tw["fantasy_points"] = tw.apply(
         lambda r: score_defense_row(r, r["points_allowed"] if pd.notna(r["points_allowed"]) else 0), axis=1
     )
+    dst_raw = tw.apply(row_raw_defense_stats, axis=1, result_type="expand")
+    tw = pd.concat([tw, dst_raw], axis=1)
+    tw = tw.loc[:, ~tw.columns.duplicated(keep="last")]  # see note in build_weekly_pool above
     tw["player_id"] = "DST_" + tw["team"]
     tw["name"] = tw["team"] + " D/ST"
     tw["position"] = "DST"
     tw["active"] = tw["kickoff"].notna()
 
-    dst_pool = tw[["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opp"]].rename(
-        columns={"opp": "opponent"}
-    )
+    dst_pool = tw[[
+        "player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opp",
+        *RAW_DST_COLS, "points_allowed",
+    ]].rename(columns={"opp": "opponent"})
 
     pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
     return pool
@@ -240,8 +305,11 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
     offense_pool = offense_pool.rename(columns={"gsis_id": "player_id", "full_name": "name", "opp": "opponent"})
     offense_pool["fantasy_points"] = 0.0
     offense_pool["active"] = True
+    for col in RAW_OFFENSE_COLS:
+        offense_pool[col] = 0.0
     offense_pool = offense_pool[
-        ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent"]
+        ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent",
+         *RAW_OFFENSE_COLS]
     ].dropna(subset=["player_id", "name"])
 
     dst_pool = team_games.drop_duplicates(["season", "week", "team"]).copy()
@@ -250,9 +318,13 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
     dst_pool["position"] = "DST"
     dst_pool["fantasy_points"] = 0.0
     dst_pool["active"] = dst_pool["kickoff"].notna()
+    dst_pool["points_allowed"] = 0.0
+    for col in RAW_DST_COLS:
+        dst_pool[col] = 0.0
     dst_pool = dst_pool.rename(columns={"opp": "opponent"})
     dst_pool = dst_pool[
-        ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent"]
+        ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent",
+         *RAW_DST_COLS, "points_allowed"]
     ]
 
     return pd.concat([offense_pool, dst_pool], ignore_index=True)
@@ -342,7 +414,7 @@ def upsert_player_week_stats(supabase, pool):
         if pd.isna(r["player_id"]):
             continue
         kickoff = r["kickoff"]
-        rows.append({
+        row = {
             "player_id": r["player_id"],
             "season": SEASON,
             "week": int(r["week"]),
@@ -351,7 +423,14 @@ def upsert_player_week_stats(supabase, pool):
             "game_final": bool(pd.notna(kickoff) and kickoff <= now_utc),
             "active": bool(r["active"]) if pd.notna(r["active"]) else False,
             "fantasy_points": round(float(r["fantasy_points"]), 2) if pd.notna(r["fantasy_points"]) else 0.0,
-        })
+        }
+        # Raw box-score stats (see RAW_STAT_COLS) — not every column applies
+        # to every position (e.g. a QB has no fg_made), those come through
+        # as NaN from the pool-building step and are stored as null here.
+        for col in RAW_STAT_COLS:
+            val = r[col] if col in r.index else None
+            row[col] = round(float(val), 2) if pd.notna(val) else None
+        rows.append(row)
     upsert_in_batches(supabase, "player_week_stats", rows, on_conflict="player_id,season,week")
     return len(rows)
 
