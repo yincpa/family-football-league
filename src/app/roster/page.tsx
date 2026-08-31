@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getTeamLineup, getMyTeamId } from "@/lib/queries";
 import { ROSTER_SLOTS } from "@/lib/types";
+import RosterTable, { type RosterRow } from "@/components/RosterTable";
 
 export default async function RosterPage({
   searchParams,
@@ -58,6 +59,20 @@ export default async function RosterPage({
   const now = Date.now();
   const bySlot = Object.fromEntries(lineup.map((l) => [l.slot, l]));
 
+  const initialRows: RosterRow[] = ROSTER_SLOTS.map((slot) => {
+    const entry = bySlot[slot];
+    const details = entry?.player_id ? playerDetails[entry.player_id] : undefined;
+    const locked = details?.kickoff ? new Date(details.kickoff).getTime() <= now : false;
+    return {
+      slot,
+      playerId: entry?.player_id ?? null,
+      fullName: details?.full_name ?? null,
+      points: details?.fantasy_points ?? null,
+      kickoff: details?.kickoff ?? null,
+      locked,
+    };
+  });
+
   return (
     <main className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-semibold mb-1">
@@ -70,7 +85,9 @@ export default async function RosterPage({
         )}
       </p>
       <p className="text-sm text-neutral-500 mb-6">
-        Editing/swapping isn&apos;t wired up yet — this is a read-only view of the auto-filled lineup.
+        Click &quot;Swap&quot; on any editable slot to change it — a slot locks once that player&apos;s
+        game has started, and you can only swap in a player who hasn&apos;t been used before and whose
+        own game hasn&apos;t started.
       </p>
 
       {!teamId && (
@@ -83,43 +100,7 @@ export default async function RosterPage({
         </p>
       )}
 
-      {teamId && (
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-neutral-200 text-sm text-neutral-500">
-              <th className="py-2 pr-4">Slot</th>
-              <th className="py-2 pr-4">Player</th>
-              <th className="py-2 pr-4 text-right">Pts</th>
-              <th className="py-2">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ROSTER_SLOTS.map((slot) => {
-              const entry = bySlot[slot];
-              const details = entry?.player_id ? playerDetails[entry.player_id] : undefined;
-              const locked = details?.kickoff ? new Date(details.kickoff).getTime() <= now : false;
-              return (
-                <tr key={slot} className="border-b border-neutral-100">
-                  <td className="py-2 pr-4 font-mono text-xs text-neutral-500">{slot}</td>
-                  <td className="py-2 pr-4 font-medium">{details?.full_name ?? "— empty —"}</td>
-                  <td className="py-2 pr-4 text-right tabular-nums">
-                    {details ? details.fantasy_points.toFixed(2) : "-"}
-                  </td>
-                  <td className="py-2">
-                    {!details ? (
-                      ""
-                    ) : locked ? (
-                      <span className="text-xs text-neutral-400">locked</span>
-                    ) : (
-                      <span className="text-xs text-emerald-600">editable</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+      {teamId && <RosterTable teamId={teamId} season={season} week={week} initialRows={initialRows} />}
     </main>
   );
 }
