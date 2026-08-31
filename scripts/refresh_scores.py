@@ -126,6 +126,16 @@ def score_defense_row(row, points_allowed):
 # were live. Fixed here by localizing to America/New_York first, then
 # converting to UTC before formatting.
 # ---------------------------------------------------------------------
+def add_kickoff_utc(games):
+    naive_kickoff = pd.to_datetime(
+        games["gameday"].astype(str) + " " + games["gametime"].astype(str), errors="coerce"
+    )
+    games["kickoff"] = (
+        naive_kickoff.dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT").dt.tz_convert("UTC")
+    )
+    return games
+
+
 def build_weekly_pool(season, max_week=MAX_WEEK):
     games = fetch_csv(f"{BASE}/schedules/games.csv")
     games = games[games["season"] == season].copy()
@@ -134,12 +144,7 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     rw = fetch_csv(f"{BASE}/weekly_rosters/roster_weekly_{season}.csv")
 
     games = games[games["week"] <= max_week].copy()
-    naive_kickoff = pd.to_datetime(
-        games["gameday"].astype(str) + " " + games["gametime"].astype(str), errors="coerce"
-    )
-    games["kickoff"] = (
-        naive_kickoff.dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT").dt.tz_convert("UTC")
-    )
+    games = add_kickoff_utc(games)
 
     home = games[["season", "week", "home_team", "away_team", "kickoff", "game_id", "home_score", "away_score"]].rename(
         columns={"home_team": "team", "away_team": "opp"}
@@ -192,6 +197,65 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
 
     pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
     return pool
+
+
+# ---------------------------------------------------------------------
+# Preseason roster preview — a fallback used ONLY when the season's real
+# stats file (stats_player_week_{season}.csv) doesn't exist yet, i.e.
+# before that season's Week 1 games have actually been played. nflverse
+# finalizes each team's 53-man roster (roster_weekly_{season}.csv) and
+# publishes the full season schedule (games.csv) well before any games are
+# played, so this builds a *preview* pool from those two files instead —
+# real player names/positions/teams/kickoff times, with fantasy_points
+# fixed at 0 since nothing has happened yet. This is what lets family
+# members browse "who's on my team" and "available players" a week or more
+# before the season actually starts.
+#
+# Every row this produces gets upserted with the same
+# (player_id, season, week) key that real stats rows use later, so once
+# stats_player_week_{season}.csv actually appears (main() always tries the
+# real stats path first), the placeholder 0-point rows are transparently
+# overwritten with real scores — no separate cleanup step needed.
+# ---------------------------------------------------------------------
+def build_preseason_pool(season, max_week=MAX_WEEK):
+    games = fetch_csv(f"{BASE}/schedules/games.csv")
+    games = games[games["season"] == season].copy()
+    games = games[games["week"] <= max_week].copy()
+    games = add_kickoff_utc(games)
+
+    home = games[["season", "week", "home_team", "away_team", "kickoff"]].rename(
+        columns={"home_team": "team", "away_team": "opp"}
+    )
+    away = games[["season", "week", "away_team", "home_team", "kickoff"]].rename(
+        columns={"away_team": "team", "home_team": "opp"}
+    )
+    team_games = pd.concat([home, away], ignore_index=True)
+
+    rw = fetch_csv(f"{BASE}/weekly_rosters/roster_weekly_{season}.csv")
+    rw = rw[(rw["season"] == season) & (rw["week"] <= max_week)].copy()
+    rw = rw[rw["position"].isin(["QB", "RB", "WR", "TE", "K"])].copy()
+    rw = rw[rw["status"] == "ACT"].copy()  # active 53-man roster only, not IR/PS/cut
+
+    offense_pool = rw.merge(team_games, on=["season", "week", "team"], how="left")
+    offense_pool = offense_pool.rename(columns={"gsis_id": "player_id", "full_name": "name", "opp": "opponent"})
+    offense_pool["fantasy_points"] = 0.0
+    offense_pool["active"] = True
+    offense_pool = offense_pool[
+        ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent"]
+    ].dropna(subset=["player_id", "name"])
+
+    dst_pool = team_games.drop_duplicates(["season", "week", "team"]).copy()
+    dst_pool["player_id"] = "DST_" + dst_pool["team"]
+    dst_pool["name"] = dst_pool["team"] + " D/ST"
+    dst_pool["position"] = "DST"
+    dst_pool["fantasy_points"] = 0.0
+    dst_pool["active"] = dst_pool["kickoff"].notna()
+    dst_pool = dst_pool.rename(columns={"opp": "opponent"})
+    dst_pool = dst_pool[
+        ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent"]
+    ]
+
+    return pd.concat([offense_pool, dst_pool], ignore_index=True)
 
 
 # ---------------------------------------------------------------------
@@ -341,20 +405,32 @@ def main():
     supabase = create_client(supabase_url, supabase_key)
 
     print(f"Fetching fresh nflverse data for season {SEASON}...")
+    preseason = False
     try:
         pool = build_weekly_pool(SEASON, max_week=MAX_WEEK)
     except Exception as e:
-        # Most likely cause: nflverse hasn't published this season's stats
-        # file yet (e.g. it's still the off-season). Exit cleanly instead
-        # of failing the workflow run — this is expected, not an error,
-        # for every scheduled tick between now and when the season starts.
-        print(f"Season {SEASON} data isn't available yet ({e}). Nothing to do.")
-        return
+        # Most likely cause: nflverse hasn't published this season's real
+        # stats file yet because Week 1 hasn't been played. Before giving
+        # up, try the preseason roster preview (real rosters + schedule,
+        # 0 points) so the app still has real players to show ahead of
+        # kickoff. Only if THAT also fails do we exit cleanly without
+        # failing the workflow run.
+        print(f"Season {SEASON} stats aren't published yet ({e}). Trying the preseason roster preview...")
+        try:
+            pool = build_preseason_pool(SEASON, max_week=MAX_WEEK)
+        except Exception as e2:
+            print(f"Preseason roster data isn't available yet either ({e2}). Nothing to do.")
+            return
+        if pool.empty:
+            print("Preseason roster preview came back empty. Nothing to do.")
+            return
+        preseason = True
     prior_pool = build_weekly_pool(SEASON - 1, max_week=MAX_WEEK)
 
     n_players = upsert_nfl_players(supabase, pool)
     n_stats = upsert_player_week_stats(supabase, pool)
-    print(f"Upserted {n_players} players, {n_stats} weekly stat rows.")
+    label = "preseason roster preview — 0 pts until games are played" if preseason else "live stats"
+    print(f"Upserted {n_players} players, {n_stats} weekly stat rows ({label}).")
 
     now_utc = pd.Timestamp.now(tz="UTC")
     leagues = supabase.table("leagues").select("id").eq("season", SEASON).execute().data
