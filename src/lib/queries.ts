@@ -99,6 +99,45 @@ export async function getUnavailablePlayerIds(
 }
 
 /**
+ * Season-to-date average fantasy points per player, over weeks strictly
+ * before `week` (so it never includes the week currently being viewed).
+ * Used to show "how has this player actually been performing," which
+ * matters more for a pick than a single week's raw stat line once there's
+ * a few weeks of history. Returns an empty map for week 1 (nothing to
+ * average yet) or before the season has any played games.
+ */
+async function getSeasonAverages(
+  supabase: SupabaseClient,
+  season: number,
+  week: number
+): Promise<Map<string, number>> {
+  if (week <= 1) return new Map();
+
+  const { data, error } = await supabase
+    .from("player_week_stats")
+    .select("player_id, fantasy_points, game_final")
+    .eq("season", season)
+    .lt("week", week)
+    .eq("game_final", true);
+
+  if (error) throw error;
+
+  const totals = new Map<string, { sum: number; games: number }>();
+  for (const row of data ?? []) {
+    const entry = totals.get(row.player_id) ?? { sum: 0, games: 0 };
+    entry.sum += row.fantasy_points ?? 0;
+    entry.games += 1;
+    totals.set(row.player_id, entry);
+  }
+
+  const averages = new Map<string, number>();
+  for (const [playerId, { sum, games }] of totals) {
+    if (games > 0) averages.set(playerId, sum / games);
+  }
+  return averages;
+}
+
+/**
  * Players eligible for this team this week: active, not on a bye, and not
  * already unavailable per getUnavailablePlayerIds above. Two queries + a
  * client-side filter, rather than one complex SQL join — simple, and fine
@@ -110,7 +149,7 @@ export async function getAvailablePlayers(
   season: number,
   week: number
 ): Promise<AvailablePlayer[]> {
-  const [unavailable, statsRes] = await Promise.all([
+  const [unavailable, statsRes, averages] = await Promise.all([
     getUnavailablePlayerIds(supabase, teamId, season, week),
     supabase
       .from("player_week_stats")
@@ -119,6 +158,7 @@ export async function getAvailablePlayers(
       .eq("week", week)
       .eq("active", true)
       .not("kickoff", "is", null),
+    getSeasonAverages(supabase, season, week),
   ]);
 
   if (statsRes.error) throw statsRes.error;
@@ -133,6 +173,25 @@ export async function getAvailablePlayers(
       kickoff: row.kickoff,
       active: row.active,
       locked: row.kickoff ? new Date(row.kickoff).getTime() <= now : false,
+      avg_points: averages.get(row.player_id) ?? null,
+      pass_yards: row.pass_yards,
+      pass_tds: row.pass_tds,
+      pass_ints: row.pass_ints,
+      rush_yards: row.rush_yards,
+      rush_tds: row.rush_tds,
+      receptions: row.receptions,
+      rec_yards: row.rec_yards,
+      rec_tds: row.rec_tds,
+      fumbles_lost: row.fumbles_lost,
+      fg_made: row.fg_made,
+      fg_att: row.fg_att,
+      pat_made: row.pat_made,
+      pat_att: row.pat_att,
+      def_sacks: row.def_sacks,
+      def_ints: row.def_ints,
+      def_fumble_rec: row.def_fumble_rec,
+      def_tds: row.def_tds,
+      points_allowed: row.points_allowed,
     }));
 }
 
