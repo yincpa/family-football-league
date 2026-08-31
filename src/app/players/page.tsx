@@ -1,44 +1,98 @@
 "use client";
 
-import { Fragment, Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getAvailablePlayers, getMyTeamId } from "@/lib/queries";
-import type { AvailablePlayer } from "@/lib/types";
+import type { AvailablePlayer, Position } from "@/lib/types";
 
-type SortKey = "full_name" | "position" | "nfl_team" | "fantasy_points" | "avg_points" | "locked";
+type SortKey = keyof AvailablePlayer;
 
-// A player's raw box-score line for the week, tailored to what's actually
-// relevant for their position -- a QB's passing/rushing, a receiver's
-// catches, a kicker's makes, a defense's sacks/turnovers/points allowed.
-// Every field comes back null pre-season or on a bye, hence the `?? 0`s --
-// "0" is the honest answer before a game has been played.
-function statLine(p: AvailablePlayer): string {
-  const parts: string[] = [];
-  if (p.position === "QB") {
-    parts.push(`${p.pass_yards ?? 0} pass yds`, `${p.pass_tds ?? 0} pass TD`, `${p.pass_ints ?? 0} INT`);
-    if ((p.rush_yards ?? 0) !== 0 || (p.rush_tds ?? 0) !== 0) {
-      parts.push(`${p.rush_yards ?? 0} rush yds`, `${p.rush_tds ?? 0} rush TD`);
+// Roster-slot-shaped tabs, not raw NFL positions -- FLEX is a real slot a
+// family member fills, so it gets its own tab (RB/WR/TE pooled together)
+// rather than making them flip between three tabs to compare FLEX options.
+const POSITION_TABS = ["All", "QB", "RB", "WR", "TE", "FLEX", "K", "DST"] as const;
+type PositionTab = (typeof POSITION_TABS)[number];
+
+function tabPositions(tab: PositionTab): Position[] | null {
+  if (tab === "All") return null; // no filter
+  if (tab === "FLEX") return ["RB", "WR", "TE"];
+  return [tab];
+}
+
+// The stat columns worth showing side-by-side for each position -- this is
+// the actual "who do I start" comparison, so only fields relevant to that
+// position appear (a kicker's FG/PAT, not a QB's passing line, etc).
+// Shown only when a single specific position tab is active; "All" and
+// "FLEX" mix positions where these columns wouldn't line up meaningfully.
+const POSITION_STAT_COLUMNS: Partial<Record<Position, { key: SortKey; label: string }[]>> = {
+  QB: [
+    { key: "pass_yards", label: "Pass Yds" },
+    { key: "pass_tds", label: "Pass TD" },
+    { key: "pass_ints", label: "INT" },
+    { key: "rush_yards", label: "Rush Yds" },
+    { key: "rush_tds", label: "Rush TD" },
+  ],
+  RB: [
+    { key: "rush_yards", label: "Rush Yds" },
+    { key: "rush_tds", label: "Rush TD" },
+    { key: "receptions", label: "Rec" },
+    { key: "rec_yards", label: "Rec Yds" },
+    { key: "rec_tds", label: "Rec TD" },
+  ],
+  WR: [
+    { key: "receptions", label: "Rec" },
+    { key: "rec_yards", label: "Rec Yds" },
+    { key: "rec_tds", label: "Rec TD" },
+    { key: "rush_yards", label: "Rush Yds" },
+  ],
+  TE: [
+    { key: "receptions", label: "Rec" },
+    { key: "rec_yards", label: "Rec Yds" },
+    { key: "rec_tds", label: "Rec TD" },
+  ],
+  K: [
+    { key: "fg_made", label: "FG" },
+    { key: "pat_made", label: "PAT" },
+  ],
+  DST: [
+    { key: "def_sacks", label: "Sacks" },
+    { key: "def_ints", label: "INT" },
+    { key: "def_fumble_rec", label: "FR" },
+    { key: "def_tds", label: "TD" },
+    { key: "points_allowed", label: "Pts Allow" },
+  ],
+};
+
+function renderCell(p: AvailablePlayer, key: SortKey) {
+  switch (key) {
+    case "full_name":
+      return p.full_name;
+    case "position":
+      return p.position;
+    case "nfl_team":
+      return p.nfl_team;
+    case "fantasy_points":
+      return p.fantasy_points.toFixed(2);
+    case "avg_points":
+      return p.avg_points != null ? p.avg_points.toFixed(2) : "—";
+    case "locked":
+      return p.locked ? (
+        <span className="text-xs text-neutral-400">locked</span>
+      ) : (
+        <span className="text-xs text-emerald-600">available</span>
+      );
+    // Made/attempted pairs read better as "3/4" than as two separate columns.
+    case "fg_made":
+      return `${p.fg_made ?? 0}/${p.fg_att ?? 0}`;
+    case "pat_made":
+      return `${p.pat_made ?? 0}/${p.pat_att ?? 0}`;
+    default: {
+      const v = p[key];
+      if (typeof v === "number") return Math.round(v).toString();
+      return v == null ? "—" : String(v);
     }
-  } else if (p.position === "RB") {
-    parts.push(`${p.rush_yards ?? 0} rush yds`, `${p.rush_tds ?? 0} rush TD`);
-    parts.push(`${p.receptions ?? 0} rec`, `${p.rec_yards ?? 0} rec yds`, `${p.rec_tds ?? 0} rec TD`);
-  } else if (p.position === "WR" || p.position === "TE") {
-    parts.push(`${p.receptions ?? 0} rec`, `${p.rec_yards ?? 0} rec yds`, `${p.rec_tds ?? 0} rec TD`);
-    if ((p.rush_yards ?? 0) !== 0) parts.push(`${p.rush_yards ?? 0} rush yds`);
-  } else if (p.position === "K") {
-    parts.push(`${p.fg_made ?? 0}/${p.fg_att ?? 0} FG`, `${p.pat_made ?? 0}/${p.pat_att ?? 0} PAT`);
-  } else if (p.position === "DST") {
-    parts.push(
-      `${p.def_sacks ?? 0} sacks`,
-      `${p.def_ints ?? 0} INT`,
-      `${p.def_fumble_rec ?? 0} FR`,
-      `${p.def_tds ?? 0} TD`,
-      `${p.points_allowed ?? 0} pts allowed`
-    );
   }
-  if ((p.fumbles_lost ?? 0) > 0) parts.push(`${p.fumbles_lost} fumbles lost`);
-  return parts.join(" · ");
 }
 
 function PlayersTable() {
@@ -53,11 +107,11 @@ function PlayersTable() {
 
   const [teamId, setTeamId] = useState<string>("");
   const [players, setPlayers] = useState<AvailablePlayer[]>([]);
+  const [positionTab, setPositionTab] = useState<PositionTab>("All");
   const [sortKey, setSortKey] = useState<SortKey>("fantasy_points");
   const [sortDesc, setSortDesc] = useState(true);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
 
   useEffect(() => {
     // Loading/error state is intentionally set from inside this effect as
@@ -89,15 +143,19 @@ function PlayersTable() {
     };
   }, [teamIdParam, season, week]);
 
+  const filtered = useMemo(() => {
+    const allowed = tabPositions(positionTab);
+    return allowed ? players.filter((p) => allowed.includes(p.position)) : players;
+  }, [players, positionTab]);
+
   const sorted = useMemo(() => {
-    const copy = [...players];
+    const copy = [...filtered];
     copy.sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      // avg_points is null for anyone with no season history yet (week 1,
-      // or a player who's been on a bye every week so far) -- sort those
-      // to the bottom regardless of direction, rather than crashing into
-      // the string-compare fallback below.
+      // Null stats (a field that doesn't apply to this position, or no
+      // season history yet) sort to the bottom regardless of direction,
+      // rather than falling into the string-compare case below.
       const cmp =
         av == null && bv == null
           ? 0
@@ -113,7 +171,7 @@ function PlayersTable() {
       return sortDesc ? -cmp : cmp;
     });
     return copy;
-  }, [players, sortKey, sortDesc]);
+  }, [filtered, sortKey, sortDesc]);
 
   function headerClick(key: SortKey) {
     if (key === sortKey) setSortDesc((d) => !d);
@@ -123,17 +181,24 @@ function PlayersTable() {
     }
   }
 
+  // Single-position tabs get that position's relevant stat columns inlined
+  // between Team and the points columns; "All"/"FLEX" mix positions so
+  // those columns are skipped there (nothing would line up meaningfully).
+  const singlePosition = positionTab !== "All" && positionTab !== "FLEX" ? (positionTab as Position) : null;
+  const statColumns = singlePosition ? POSITION_STAT_COLUMNS[singlePosition] ?? [] : [];
+
   const columns: { key: SortKey; label: string }[] = [
     { key: "full_name", label: "Player" },
-    { key: "position", label: "Pos" },
+    ...(singlePosition ? [] : [{ key: "position" as SortKey, label: "Pos" }]),
     { key: "nfl_team", label: "Team" },
+    ...statColumns,
     { key: "fantasy_points", label: `Wk ${week} Pts` },
     { key: "avg_points", label: "Avg Pts" },
     { key: "locked", label: "Status" },
   ];
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
+    <main className="mx-auto max-w-4xl p-6">
       <h1 className="text-2xl font-semibold mb-1">Available Players</h1>
       <p className="text-xs font-mono text-neutral-400 mb-2">
         Season {season} · Week {week}
@@ -141,10 +206,27 @@ function PlayersTable() {
           <span className="text-amber-600"> (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)</span>
         )}
       </p>
-      <p className="text-sm text-neutral-500 mb-6">
-        Players not yet used by this team, active this week. Click a column header to sort, click a
-        player row to see their full stat line.
+      <p className="text-sm text-neutral-500 mb-4">
+        Players not yet used by this team, active this week. Pick a position to compare, click a column
+        header to sort.
       </p>
+
+      <div className="flex flex-wrap gap-2 mb-6">
+        {POSITION_TABS.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setPositionTab(tab)}
+            className={
+              "text-sm px-3 py-1 rounded-full border " +
+              (positionTab === tab
+                ? "bg-neutral-900 text-white border-neutral-900"
+                : "border-neutral-300 text-neutral-600 hover:border-neutral-500")
+            }
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
 
       {!loading && !teamId && (
         <p className="text-sm text-amber-600 border border-amber-300 rounded-md p-3 mb-4">
@@ -159,64 +241,42 @@ function PlayersTable() {
       {loading && <p className="text-sm text-neutral-400 mb-4">Loading…</p>}
 
       {teamId && !loading && (
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-neutral-200 text-sm text-neutral-500">
-              {columns.map((c) => (
-                <th
-                  key={c.key}
-                  onClick={() => headerClick(c.key)}
-                  className="py-2 pr-4 cursor-pointer select-none hover:text-neutral-800"
-                >
-                  {c.label}
-                  {sortKey === c.key ? (sortDesc ? " ↓" : " ↑") : ""}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((p) => {
-              const isOpen = openPlayerId === p.player_id;
-              return (
-                <Fragment key={p.player_id}>
-                  <tr
-                    onClick={() => setOpenPlayerId(isOpen ? null : p.player_id)}
-                    className="border-b border-neutral-100 cursor-pointer hover:bg-neutral-50"
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-neutral-200 text-sm text-neutral-500">
+                {columns.map((c) => (
+                  <th
+                    key={c.key}
+                    onClick={() => headerClick(c.key)}
+                    className="py-2 pr-4 cursor-pointer select-none hover:text-neutral-800 whitespace-nowrap"
                   >
-                    <td className="py-2 pr-4 font-medium">{p.full_name}</td>
-                    <td className="py-2 pr-4">{p.position}</td>
-                    <td className="py-2 pr-4">{p.nfl_team}</td>
-                    <td className="py-2 pr-4 tabular-nums">{p.fantasy_points.toFixed(2)}</td>
-                    <td className="py-2 pr-4 tabular-nums text-neutral-500">
-                      {p.avg_points != null ? p.avg_points.toFixed(2) : "—"}
-                    </td>
-                    <td className="py-2">
-                      {p.locked ? (
-                        <span className="text-xs text-neutral-400">locked</span>
-                      ) : (
-                        <span className="text-xs text-emerald-600">available</span>
-                      )}
-                    </td>
-                  </tr>
-                  {isOpen && (
-                    <tr className="border-b border-neutral-100 bg-neutral-50">
-                      <td colSpan={6} className="py-2 px-4 text-sm text-neutral-600">
-                        Wk {week}: {statLine(p)}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-            {sorted.length === 0 && (
-              <tr>
-                <td colSpan={6} className="py-6 text-center text-neutral-400">
-                  No eligible players found.
-                </td>
+                    {c.label}
+                    {sortKey === c.key ? (sortDesc ? " ↓" : " ↑") : ""}
+                  </th>
+                ))}
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sorted.map((p) => (
+                <tr key={p.player_id} className="border-b border-neutral-100">
+                  {columns.map((c) => (
+                    <td key={c.key} className="py-2 pr-4 tabular-nums whitespace-nowrap">
+                      {renderCell(p, c.key)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {sorted.length === 0 && (
+                <tr>
+                  <td colSpan={columns.length} className="py-6 text-center text-neutral-400">
+                    No eligible players found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
     </main>
   );
