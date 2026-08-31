@@ -28,12 +28,11 @@ export default async function AccountPage() {
           <p className="text-sm text-neutral-500 mb-1">Your team</p>
           <p className="text-lg font-medium">{myTeam.team_name}</p>
           <div className="flex gap-4 mt-3">
-            {/* TEMP: hardcoded to the 2025 test-data season/week until the
-                real 2026 season kicks off in September. */}
-            <a href="/roster?season=2025&week=1" className="text-sm underline underline-offset-4">
+            {/* TEMP: hardcoded to season 2026 week 1 (the live season). */}
+            <a href="/roster?season=2026&week=1" className="text-sm underline underline-offset-4">
               View my lineup
             </a>
-            <a href="/players?season=2025&week=1" className="text-sm underline underline-offset-4">
+            <a href="/players?season=2026&week=1" className="text-sm underline underline-offset-4">
               Available players
             </a>
           </div>
