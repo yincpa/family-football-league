@@ -1,5 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AvailablePlayer, Lineup, Position, StandingsRow } from "./types";
+import type {
+  AvailablePlayer,
+  CommissionedLeague,
+  CommissionerTeamRow,
+  Lineup,
+  Position,
+  StandingsRow,
+} from "./types";
 
 export async function getStandings(
   supabase: SupabaseClient,
@@ -212,4 +219,92 @@ export async function getEligibleCandidates(
   return players
     .filter((p) => positions.includes(p.position) && !p.locked)
     .sort((a, b) => b.fantasy_points - a.fantasy_points);
+}
+
+/**
+ * The league(s) the logged-in user commissions, i.e. leagues where
+ * leagues.commissioner_user_id matches them. Empty for anyone who isn't a
+ * commissioner -- the /commissioner page uses this to decide what to show.
+ */
+export async function getCommissionedLeagues(supabase: SupabaseClient): Promise<CommissionedLeague[]> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from("leagues")
+    .select("id, name, season")
+    .eq("commissioner_user_id", user.id);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Every team in a league, with the owner's email resolved from `profiles`
+ * for display. Two queries + a client-side merge (same pattern as
+ * getAvailablePlayers' season-average join) rather than a DB foreign key
+ * between teams and profiles, since owner_user_id and profiles.id both
+ * point at auth.users independently rather than at each other.
+ */
+export async function getCommissionerTeams(
+  supabase: SupabaseClient,
+  leagueId: string
+): Promise<CommissionerTeamRow[]> {
+  const { data: teams, error } = await supabase
+    .from("teams")
+    .select("id, team_name, owner_user_id")
+    .eq("league_id", leagueId)
+    .order("team_name");
+
+  if (error) throw error;
+  if (!teams || teams.length === 0) return [];
+
+  const ownerIds = [...new Set(teams.map((t) => t.owner_user_id))];
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, email")
+    .in("id", ownerIds);
+
+  if (profilesError) throw profilesError;
+  const emailById = new Map((profiles ?? []).map((p) => [p.id, p.email as string]));
+
+  return teams.map((t) => ({
+    ...t,
+    owner_email: emailById.get(t.owner_user_id) ?? null,
+  }));
+}
+
+/**
+ * Creates a new team in a league, owned by the given user id. Relies on
+ * the "commissioners can insert teams in their league" RLS policy to
+ * enforce that only that league's commissioner can actually do this --
+ * there's no separate authorization check here, the database is the
+ * source of truth. A user id that isn't a real signed-up account fails
+ * with a foreign-key error, surfaced to the caller as-is.
+ */
+export async function createTeam(
+  supabase: SupabaseClient,
+  leagueId: string,
+  teamName: string,
+  ownerUserId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("teams")
+    .insert({ league_id: leagueId, team_name: teamName, owner_user_id: ownerUserId });
+  if (error) throw error;
+}
+
+/**
+ * Reassigns an existing team to a different owner. Same RLS-enforced
+ * pattern as createTeam above.
+ */
+export async function reassignTeamOwner(
+  supabase: SupabaseClient,
+  teamId: string,
+  newOwnerUserId: string
+): Promise<void> {
+  const { error } = await supabase.from("teams").update({ owner_user_id: newOwnerUserId }).eq("id", teamId);
+  if (error) throw error;
 }
