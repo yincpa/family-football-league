@@ -8,12 +8,11 @@ export default function Home() {
         No draft. Use every player once. Season-long standings.
       </p>
       <nav className="flex flex-col gap-3">
-        {/* TEMP: hardcoded to the 2025 test-data season/week until the real
-            2026 season kicks off in September. */}
-        <Link className="text-lg underline underline-offset-4" href="/roster?season=2025&week=1">
+        {/* TEMP: hardcoded to season 2026 week 1 (the live season). */}
+        <Link className="text-lg underline underline-offset-4" href="/roster?season=2026&week=1">
           My Lineup
         </Link>
-        <Link className="text-lg underline underline-offset-4" href="/players?season=2025&week=1">
+        <Link className="text-lg underline underline-offset-4" href="/players?season=2026&week=1">
           Available Players
         </Link>
         <Link className="text-lg underline underline-offset-4" href="/standings">
