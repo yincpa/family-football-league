@@ -66,8 +66,22 @@ const POSITION_STAT_COLUMNS: Partial<Record<Position, { key: SortKey; label: str
 
 function renderCell(p: AvailablePlayer, key: SortKey) {
   switch (key) {
-    case "full_name":
-      return p.full_name;
+        case "full_name":
+      return (
+        <span className="flex items-center gap-2">
+          {p.headshot_url ? (
+            // eslint-disable-next-line @next/next/no-img-element -- external nflverse/NFL.com URLs, not local assets.
+            <img
+              src={p.headshot_url}
+              alt={p.full_name}
+              className="w-6 h-6 rounded-full object-cover bg-neutral-100 shrink-0"
+            />
+          ) : (
+            <span className="w-6 h-6 rounded-full bg-neutral-100 shrink-0 inline-block" />
+          )}
+          {p.full_name}
+        </span>
+      );
     case "position":
       return p.position;
     case "nfl_team":
