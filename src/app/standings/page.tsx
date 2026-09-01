@@ -23,8 +23,15 @@ export default async function StandingsPage() {
     pointsByTeam.get(row.team_id)!.set(row.week, row.points);
   }
 
+  // Rank/Team stay pinned on the left and Total stays pinned on the right
+  // (via `sticky` + matching `left`/`right` offsets that line up with each
+  // column's fixed width below) so both are always visible even if the
+  // week columns need to scroll on a narrower screen. The page itself runs
+  // full-width rather than a fixed max-w container, to give the best shot
+  // at fitting all 18 week columns with no scrolling at all on a normal
+  // laptop/desktop screen.
   return (
-    <main className="mx-auto max-w-4xl p-6">
+    <main className="w-full px-6 py-6">
       <h1 className="text-2xl font-semibold mb-1">Season Standings</h1>
       <p className="text-sm text-neutral-500 mb-6">
         Cumulative points, no head-to-head. Each column is that week&apos;s score, so you can follow a
@@ -38,18 +45,22 @@ export default async function StandingsPage() {
         </p>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
+      <div className="overflow-x-auto border border-neutral-200 rounded-md">
+        <table className="border-collapse text-sm" style={{ minWidth: "100%" }}>
           <thead>
-            <tr className="border-b border-neutral-200 text-sm text-neutral-500">
-              <th className="py-2 pr-4">Rank</th>
-              <th className="py-2 pr-4">Team</th>
+            <tr className="border-b border-neutral-200 text-neutral-500">
+              <th className="sticky left-0 z-20 bg-white w-10 py-2 pl-3 pr-2 text-left">#</th>
+              <th className="sticky left-10 z-20 bg-white border-r border-neutral-200 w-40 py-2 px-3 text-left">
+                Team
+              </th>
               {weeks.map((w) => (
-                <th key={w} className="py-2 px-3 text-right whitespace-nowrap">
+                <th key={w} className="w-14 py-2 px-2 text-right whitespace-nowrap">
                   Wk {w}
                 </th>
               ))}
-              <th className="py-2 pl-4 text-right font-semibold whitespace-nowrap">Total</th>
+              <th className="sticky right-0 z-20 bg-white border-l border-neutral-200 w-24 py-2 pl-3 pr-4 text-right font-semibold">
+                Total
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -57,17 +68,19 @@ export default async function StandingsPage() {
               const teamWeeks = pointsByTeam.get(row.team_id);
               return (
                 <tr key={row.team_id} className="border-b border-neutral-100">
-                  <td className="py-2 pr-4 text-neutral-500">{i + 1}</td>
-                  <td className="py-2 pr-4 font-medium whitespace-nowrap">{row.team_name}</td>
+                  <td className="sticky left-0 z-10 bg-white py-2 pl-3 pr-2 text-neutral-500">{i + 1}</td>
+                  <td className="sticky left-10 z-10 bg-white border-r border-neutral-200 py-2 px-3 font-medium whitespace-nowrap">
+                    {row.team_name}
+                  </td>
                   {weeks.map((w) => {
                     const pts = teamWeeks?.get(w);
                     return (
-                      <td key={w} className="py-2 px-3 text-right tabular-nums text-neutral-600">
+                      <td key={w} className="py-2 px-2 text-right tabular-nums text-neutral-600">
                         {pts !== undefined ? pts.toFixed(2) : "—"}
                       </td>
                     );
                   })}
-                  <td className="py-2 pl-4 text-right tabular-nums font-semibold">
+                  <td className="sticky right-0 z-10 bg-white border-l border-neutral-200 py-2 pl-3 pr-4 text-right tabular-nums font-semibold">
                     {row.total_points.toFixed(2)}
                   </td>
                 </tr>
