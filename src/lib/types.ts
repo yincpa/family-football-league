@@ -23,6 +23,7 @@ export interface NflPlayer {
   full_name: string;
   position: Position;
   nfl_team: string;
+  headshot_url: string | null; // from nflverse's roster data; null for obscure/deep-bench players
 }
 
 export interface PlayerWeekStats {
@@ -42,6 +43,17 @@ export interface Team {
   league_id: string;
   owner_user_id: string;
   team_name: string;
+}
+
+/** A team's logo, however it's set: an emoji character in logo_emoji, an
+ * uploaded photo's URL in logo_image_url, or neither yet. The app treats
+ * these as mutually exclusive -- setting one always clears the other -- so
+ * anywhere a logo renders, the rule is: image if present, else emoji, else
+ * a plain fallback (team_name's first letter). */
+export interface TeamLogo {
+  id: string;
+  logo_emoji: string | null;
+  logo_image_url: string | null;
 }
 
 /** A league the logged-in user commissions (leagues.commissioner_user_id
@@ -115,6 +127,8 @@ export interface LeagueMessage {
   body: string;
   created_at: string;
   author_name: string; // full_name, falling back to email, falling back to a short id
+  author_team_logo_emoji: string | null;
+  author_team_logo_image_url: string | null;
 }
 
 /** A player joined with this week's stats, annotated with lock status —
