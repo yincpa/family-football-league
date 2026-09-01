@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import TeamLogoEditor from "@/components/TeamLogoEditor";
 
 export default async function AccountPage() {
   const supabase = await createClient();
@@ -13,7 +14,7 @@ export default async function AccountPage() {
 
   const { data: teams } = await supabase
     .from("teams")
-    .select("id, team_name, league_id")
+    .select("id, team_name, league_id, logo_emoji, logo_image_url")
     .eq("owner_user_id", user.id);
 
   const myTeam = teams?.[0] ?? null;
@@ -26,8 +27,14 @@ export default async function AccountPage() {
       {myTeam ? (
         <div className="border border-neutral-200 rounded-md p-4 mb-6">
           <p className="text-sm text-neutral-500 mb-1">Your team</p>
-          <p className="text-lg font-medium">{myTeam.team_name}</p>
-          <div className="flex gap-4 mt-3">
+          <p className="text-lg font-medium mb-3">{myTeam.team_name}</p>
+          <TeamLogoEditor
+            teamId={myTeam.id}
+            teamName={myTeam.team_name}
+            initialEmoji={myTeam.logo_emoji}
+            initialImageUrl={myTeam.logo_image_url}
+          />
+          <div className="flex gap-4 mt-4">
             {/* TEMP: hardcoded to season 2026 week 1 (the live season). */}
             <a href="/roster?season=2026&week=1" className="text-sm underline underline-offset-4">
               View my lineup
@@ -48,14 +55,16 @@ export default async function AccountPage() {
           </code>
         </div>
       )}
-   {/* mailto: link, moved here from the nav bar to de-clutter it -- this is the one place everyone signed in reliably passes through.
-              */}
-         <a
-            href="mailto:yincpa@gmail.com"
-            className="block text-sm text-neutral-500 underline underline-offset-4 mb-6"
-          >
-            Contact Commissioner
-          </a>
+
+      {/* mailto: link, moved here from the nav bar to de-clutter it --
+          this is the one place everyone signed in reliably passes through. */}
+      
+        href="mailto:yincpa@gmail.com"
+        className="block text-sm text-neutral-500 underline underline-offset-4 mb-6"
+      >
+        Contact Commissioner
+      </a>
+
       <form action="/logout" method="post">
         <button
           type="submit"
