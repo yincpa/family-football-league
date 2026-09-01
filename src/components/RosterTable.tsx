@@ -11,8 +11,32 @@ export type RosterRow = {
   fullName: string | null;
   points: number | null;
   kickoff: string | null;
+  headshotUrl: string | null;
   locked: boolean;
 };
+
+// Small, round, falls back to a plain gray circle (not an error icon) if a
+// player has no headshot on file -- true for a handful of obscure/deep-bench
+// players nflverse doesn't have a photo for.
+function Headshot({ url, alt, size = 28 }: { url: string | null; alt: string; size?: number }) {
+  if (!url) {
+    return (
+      <span
+        style={{ width: size, height: size }}
+        className="rounded-full bg-neutral-100 shrink-0 inline-block"
+      />
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- external nflverse/NFL.com URLs, not local assets.
+    <img
+      src={url}
+      alt={alt}
+      style={{ width: size, height: size }}
+      className="rounded-full object-cover bg-neutral-100 shrink-0"
+    />
+  );
+}
 
 export default function RosterTable({
   teamId,
@@ -74,6 +98,7 @@ export default function RosterTable({
                 fullName: candidate.full_name,
                 points: candidate.fantasy_points,
                 kickoff: candidate.kickoff,
+                headshotUrl: candidate.headshot_url,
                 locked: candidate.locked,
               }
             : r
@@ -107,7 +132,12 @@ export default function RosterTable({
             <Fragment key={slot}>
               <tr className="border-b border-neutral-100">
                 <td className="py-2 pr-4 font-mono text-xs text-neutral-500">{slot}</td>
-                <td className="py-2 pr-4 font-medium">{row?.fullName ?? "— empty —"}</td>
+                <td className="py-2 pr-4 font-medium">
+                  <span className="flex items-center gap-2">
+                    {row?.playerId && <Headshot url={row.headshotUrl} alt={row.fullName ?? ""} />}
+                    {row?.fullName ?? "— empty —"}
+                  </span>
+                </td>
                 <td className="py-2 pr-4 text-right tabular-nums">
                   {row?.points != null ? row.points.toFixed(2) : "-"}
                 </td>
@@ -142,8 +172,9 @@ export default function RosterTable({
                     ) : (
                       <ul className="flex flex-col gap-1 max-h-64 overflow-y-auto">
                         {candidates.map((c) => (
-                          <li key={c.player_id} className="flex items-center justify-between text-sm">
-                            <span>
+                        <li key={c.player_id} className="flex items-center justify-between text-sm">
+                            <span className="flex items-center gap-2">
+                              <Headshot url={c.headshot_url} alt={c.full_name} size={24} />
                               {c.full_name}{" "}
                               <span className="text-neutral-400">
                                 ({c.position} · {c.nfl_team})
