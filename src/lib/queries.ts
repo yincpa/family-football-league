@@ -81,6 +81,30 @@ export async function getMyTeamId(supabase: SupabaseClient): Promise<string | nu
   return data?.id ?? null;
 }
 
+/**
+ * The current user's own team (id + name), or null if they're not signed in
+ * or don't have a team yet. Used by the nav bar to show your team name
+ * instead of your raw email once the commissioner has set one up for you.
+ */
+export async function getMyTeam(
+  supabase: SupabaseClient
+): Promise<{ id: string; team_name: string } | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from("teams")
+    .select("id, team_name")
+    .eq("owner_user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ?? null;
+}
+
 export async function getTeamLineup(
   supabase: SupabaseClient,
   teamId: string,
