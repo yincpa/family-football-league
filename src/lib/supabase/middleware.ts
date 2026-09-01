@@ -4,7 +4,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PROTECTED_PATHS = ["/roster", "/players", "/account", "/commissioner"];
+const PROTECTED_PATHS = ["/roster", "/players", "/account", "/commissioner", "/chat"];
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
