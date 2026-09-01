@@ -1,9 +1,16 @@
 import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 
-// The old landing page here just duplicated links already in the nav bar
-// (My Lineup, Players, Standings) — now that the nav bar covers all of
-// that, "home" is just Standings, which is the one page open to everyone
-// whether they're signed in or not.
-export default function Home() {
-  redirect("/standings");
+// "Home" depends on whether you're signed in: signed-in users land on
+// their Account tab (team name, etc.) -- the same place login/signup
+// already send you -- while a signed-out visitor lands on Standings, the
+// one page open to everyone. Keeps the site title / "/" behaving the same
+// way regardless of login state, instead of a fixed destination.
+export default async function Home() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  redirect(user ? "/account" : "/standings");
 }
