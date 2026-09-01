@@ -8,6 +8,7 @@ import type {
   Position,
   Profile,
   StandingsRow,
+  TeamLogo,
   WeeklyTeamPoints,
 } from "./types";
 
@@ -54,6 +55,23 @@ export async function getWeeklyTeamPoints(
     .from("team_week_points")
     .select("team_id, week, points")
     .in("team_id", teamIds);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+
+/**
+ * Every team's logo in a league (id + emoji/image, whichever is set) --
+ * powers the small logo shown next to each team name on Standings. Same
+ * "separate query, merge client-side" pattern as getWeeklyTeamPoints right
+ * above, for the same reason (no single view has both).
+ */
+export async function getTeamLogos(supabase: SupabaseClient, leagueId: string): Promise<TeamLogo[]> {
+  const { data, error } = await supabase
+    .from("teams")
+    .select("id, logo_emoji, logo_image_url")
+    .eq("league_id", leagueId);
 
   if (error) throw error;
   return data ?? [];
