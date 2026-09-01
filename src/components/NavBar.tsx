@@ -90,15 +90,6 @@ export default function NavBar() {
               </Link>
             </>
           )}
-          {/* mailto: link, not a page -- always visible (signed in or not)
-              since anyone, including someone who hasn't signed up yet,
-              might need to reach the commissioner. */}
-         <a
-            href="mailto:yincpa@gmail.com"
-            className="hover:underline underline-offset-4 text-neutral-500"
-          >
-            Contact Commissioner
-          </a>
         </div>
       </nav>
     </header>
