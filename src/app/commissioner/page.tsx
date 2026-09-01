@@ -12,6 +12,16 @@ import {
 } from "@/lib/queries";
 import type { CommissionedLeague, CommissionerTeamRow, Profile } from "@/lib/types";
 
+/** How a signed-up person shows up throughout this page: full name first
+ * (that's what the commissioner actually recognizes), with the email
+ * alongside so there's no ambiguity if two people share a name. Falls back
+ * to whatever's available for an older account that signed up before the
+ * name field existed. */
+function profileLabel(p: Profile): string {
+  if (p.full_name && p.email) return `${p.full_name} (${p.email})`;
+  return p.full_name ?? p.email ?? p.id;
+}
+
 function OwnerSelect({
   profiles,
   value,
@@ -30,7 +40,7 @@ function OwnerSelect({
       <option value="">Choose a family member…</option>
       {profiles.map((p) => (
         <option key={p.id} value={p.id}>
-          {p.email ?? p.id}
+          {profileLabel(p)}
         </option>
       ))}
     </select>
@@ -82,6 +92,19 @@ function LeagueSection({ league, profiles }: { league: CommissionedLeague; profi
       cancelled = true;
     };
   }, [league.id, reloadKey]);
+
+  // Signed-up accounts that don't already own a team in this league --
+  // these are the people the commissioner still needs to act on. Computed
+  // client-side from the two lists already in memory rather than a new
+  // query, same "merge in the browser" approach used everywhere else here.
+  const assignedIds = new Set(teams.map((t) => t.owner_user_id));
+  const waitingProfiles = profiles.filter((p) => !assignedIds.has(p.id));
+
+  function startTeamForPerson(p: Profile) {
+    setNewOwnerId(p.id);
+    setNewTeamName(p.requested_team_name ?? "");
+    setCreateError(null);
+  }
 
   async function handleCreateTeam(e: React.FormEvent) {
     e.preventDefault();
@@ -278,6 +301,36 @@ function LeagueSection({ league, profiles }: { league: CommissionedLeague; profi
         </table>
       )}
 
+      {!loading && waitingProfiles.length > 0 && (
+        <div className="border border-amber-300 bg-amber-50 rounded-md p-4 mb-4">
+          <p className="text-sm font-medium mb-3">
+            Signed up, waiting for a team ({waitingProfiles.length})
+          </p>
+          <ul className="flex flex-col gap-2">
+            {waitingProfiles.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 text-sm">
+                <div>
+                  <span className="font-medium">{p.full_name ?? "(no name given)"}</span>{" "}
+                  <span className="text-neutral-500">{p.email}</span>
+                  {p.requested_team_name && (
+                    <span className="text-neutral-500">
+                      {" "}
+                      — wants to call their team &ldquo;{p.requested_team_name}&rdquo;
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => startTeamForPerson(p)}
+                  className="text-xs bg-neutral-900 text-white rounded px-2 py-1 whitespace-nowrap"
+                >
+                  Set up team
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <form onSubmit={handleCreateTeam} className="border border-neutral-200 rounded-md p-4 max-w-md">
         <p className="text-sm font-medium mb-3">Add a new team</p>
         <div className="flex flex-col gap-2">
@@ -336,7 +389,8 @@ export default function CommissionerPage() {
       <h1 className="text-2xl font-semibold mb-1">Commissioner</h1>
       <p className="text-sm text-neutral-500 mb-6">
         Create teams and assign them to family members. Anyone you want to assign a team to needs to sign
-        up first — once they have an account, they&apos;ll show up in the dropdown below by their email.
+        up first — once they have an account, they&apos;ll show up below by name and email, along with the
+        team name they asked for.
       </p>
 
       {errorMsg && <p className="text-sm text-red-600 mb-4">{errorMsg}</p>}
