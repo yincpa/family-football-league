@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
   const router = useRouter();
+  const [fullName, setFullName] = useState("");
+  const [teamName, setTeamName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,7 +23,17 @@ export default function SignupPage() {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        // Read by the handle_new_user() database trigger, which copies
+        // these into the profiles table so the commissioner can see who
+        // signed up and what team name they want, before ever creating an
+        // account/team assignment for them.
+        data: {
+          full_name: fullName.trim(),
+          requested_team_name: teamName.trim(),
+        },
+      },
     });
     setLoading(false);
     if (error) {
@@ -51,8 +63,33 @@ export default function SignupPage() {
 
   return (
     <main className="mx-auto max-w-sm p-6">
-      <h1 className="text-2xl font-semibold mb-6">Create an account</h1>
+      <h1 className="text-2xl font-semibold mb-2">Create an account</h1>
+      <p className="text-sm text-neutral-500 mb-6">
+        Your name and team name go straight to the commissioner, so they can set up your team for you.
+      </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1 text-sm">
+          Full name
+          <input
+            type="text"
+            required
+            autoComplete="name"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className="border border-neutral-300 rounded-md px-3 py-2"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Team name
+          <input
+            type="text"
+            required
+            value={teamName}
+            onChange={(e) => setTeamName(e.target.value)}
+            placeholder="What do you want your team to be called?"
+            className="border border-neutral-300 rounded-md px-3 py-2"
+          />
+        </label>
         <label className="flex flex-col gap-1 text-sm">
           Email
           <input
