@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import { getStandings, getWeeklyTeamPoints } from "@/lib/queries";
+import { getStandings, getTeamLogos, getWeeklyTeamPoints } from "@/lib/queries";
+import { TeamLogo } from "@/components/TeamLogoEditor";
+import type { TeamLogo as TeamLogoData } from "@/lib/types";
 
 // TEMP: until sign-in + league selection is built, the league id comes
 // from an env var. Replace with real league lookup once auth is wired up.
@@ -7,9 +9,15 @@ const LEAGUE_ID = process.env.NEXT_PUBLIC_DEMO_LEAGUE_ID ?? "";
 
 export default async function StandingsPage() {
   const supabase = await createClient();
-  const [standings, weeklyPoints] = LEAGUE_ID
-    ? await Promise.all([getStandings(supabase, LEAGUE_ID), getWeeklyTeamPoints(supabase, LEAGUE_ID)])
-    : [[], []];
+  const [standings, weeklyPoints, logos] = LEAGUE_ID
+    ? await Promise.all([
+        getStandings(supabase, LEAGUE_ID),
+        getWeeklyTeamPoints(supabase, LEAGUE_ID),
+        getTeamLogos(supabase, LEAGUE_ID),
+      ])
+    : [[], [], []];
+
+  const logoByTeam = new Map<string, TeamLogoData>((logos as TeamLogoData[]).map((l) => [l.id, l]));
 
   // Newest week first -- Total sits right next to Team, and the most
   // recent week's score is the next thing your eye hits, since that's
@@ -67,7 +75,15 @@ export default async function StandingsPage() {
                 <tr key={row.team_id} className="border-b border-neutral-100">
                   <td className="sticky left-0 z-10 bg-white py-2 pl-3 pr-2 text-neutral-500">{i + 1}</td>
                   <td className="sticky left-10 z-10 bg-white py-2 px-3 font-medium whitespace-nowrap">
-                    {row.team_name}
+                    <span className="flex items-center gap-2">
+                      <TeamLogo
+                        emoji={logoByTeam.get(row.team_id)?.logo_emoji ?? null}
+                        imageUrl={logoByTeam.get(row.team_id)?.logo_image_url ?? null}
+                        teamName={row.team_name}
+                        size={18}
+                      />
+                      {row.team_name}
+                    </span>
                   </td>
                   <td className="sticky left-[12.5rem] z-10 bg-white border-r border-neutral-200 py-2 pl-3 pr-4 text-right tabular-nums font-semibold">
                     {row.total_points.toFixed(2)}
