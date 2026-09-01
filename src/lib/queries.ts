@@ -357,3 +357,13 @@ export async function reassignTeamOwner(
   const { error } = await supabase.from("teams").update({ owner_user_id: newOwnerUserId }).eq("id", teamId);
   if (error) throw error;
 }
+
+/**
+ * Renames an existing team. Same "commissioners can update teams in their
+ * league" RLS policy already covers this -- it's a general UPDATE policy,
+ * not scoped to just the owner column -- so no database changes needed.
+ */
+export async function renameTeam(supabase: SupabaseClient, teamId: string, teamName: string): Promise<void> {
+  const { error } = await supabase.from("teams").update({ team_name: teamName }).eq("id", teamId);
+  if (error) throw error;
+}
