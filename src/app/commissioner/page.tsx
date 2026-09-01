@@ -8,6 +8,7 @@ import {
   getCommissionedLeagues,
   getCommissionerTeams,
   reassignTeamOwner,
+  renameTeam,
 } from "@/lib/queries";
 import type { CommissionedLeague, CommissionerTeamRow, Profile } from "@/lib/types";
 
@@ -50,6 +51,11 @@ function LeagueSection({ league, profiles }: { league: CommissionedLeague; profi
   const [reassignValue, setReassignValue] = useState("");
   const [reassignBusy, setReassignBusy] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
+
+  const [renameOpenFor, setRenameOpenFor] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const [newTeamName, setNewTeamName] = useState("");
   const [newOwnerId, setNewOwnerId] = useState("");
@@ -103,6 +109,27 @@ function LeagueSection({ league, profiles }: { league: CommissionedLeague; profi
     }
   }
 
+  async function handleRename(teamId: string) {
+    setRenameError(null);
+    const name = renameValue.trim();
+    if (!name) {
+      setRenameError("Team name can't be blank.");
+      return;
+    }
+    setRenameBusy(true);
+    try {
+      const supabase = createClient();
+      await renameTeam(supabase, teamId, name);
+      setRenameOpenFor(null);
+      setRenameValue("");
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      setRenameError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
   async function handleReassign(teamId: string) {
     setReassignError(null);
     if (!reassignValue) {
@@ -143,15 +170,63 @@ function LeagueSection({ league, profiles }: { league: CommissionedLeague; profi
           </thead>
           <tbody>
             {teams.map((t) => {
-              const isOpen = reassignOpenFor === t.id;
+              const isReassigning = reassignOpenFor === t.id;
+              const isRenaming = renameOpenFor === t.id;
               return (
                 <tr key={t.id} className="border-b border-neutral-100 align-top">
-                  <td className="py-2 pr-4 font-medium">{t.team_name}</td>
+                  <td className="py-2 pr-4 font-medium">
+                    {isRenaming ? (
+                      <div className="flex flex-col gap-1 max-w-xs">
+                        <input
+                          type="text"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          placeholder="Team name"
+                          className="text-sm border border-neutral-300 rounded px-2 py-1"
+                        />
+                        {renameError && <p className="text-xs text-red-600">{renameError}</p>}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleRename(t.id)}
+                            disabled={renameBusy}
+                            className="text-xs bg-neutral-900 text-white rounded px-2 py-1 disabled:opacity-50"
+                          >
+                            {renameBusy ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setRenameOpenFor(null);
+                              setRenameError(null);
+                            }}
+                            className="text-xs text-neutral-500 underline underline-offset-4"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span>{t.team_name}</span>
+                        <button
+                          onClick={() => {
+                            setReassignOpenFor(null);
+                            setReassignError(null);
+                            setRenameOpenFor(t.id);
+                            setRenameValue(t.team_name);
+                            setRenameError(null);
+                          }}
+                          className="text-xs underline underline-offset-4 text-neutral-400 hover:text-neutral-700"
+                        >
+                          Rename
+                        </button>
+                      </div>
+                    )}
+                  </td>
                   <td className="py-2 pr-4">
                     {t.owner_email ?? <span className="text-neutral-400 font-mono text-xs">{t.owner_user_id}</span>}
                   </td>
                   <td className="py-2">
-                    {isOpen ? (
+                    {isReassigning ? (
                       <div className="flex flex-col gap-1 max-w-xs">
                         <OwnerSelect profiles={profiles} value={reassignValue} onChange={setReassignValue} />
                         {reassignError && <p className="text-xs text-red-600">{reassignError}</p>}
@@ -177,6 +252,8 @@ function LeagueSection({ league, profiles }: { league: CommissionedLeague; profi
                     ) : (
                       <button
                         onClick={() => {
+                          setRenameOpenFor(null);
+                          setRenameError(null);
                           setReassignOpenFor(t.id);
                           setReassignValue("");
                           setReassignError(null);
@@ -279,4 +356,3 @@ export default function CommissionerPage() {
     </main>
   );
 }
-
