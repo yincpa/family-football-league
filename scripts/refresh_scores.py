@@ -230,7 +230,7 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     # freshly computed version (same values, just avoids ambiguous columns).
     pw = pw.loc[:, ~pw.columns.duplicated(keep="last")]
 
-    rw_slim = rw[["season", "week", "gsis_id", "team", "status"]].rename(columns={"gsis_id": "player_id"})
+    rw_slim = rw[["season", "week", "gsis_id", "team", "status", "headshot_url"]].rename(columns={"gsis_id": "player_id"})
     pw = pw.merge(rw_slim, on=["season", "week", "player_id"], suffixes=("", "_roster"), how="left")
     pw["team"] = pw["team"].where(pw["team"].notna(), pw["team_roster"])
     pw["active"] = pw["status"] == "ACT"
@@ -238,8 +238,8 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     pw = pw.merge(team_games, on=["season", "week", "team"], how="left")
 
     offense_pool = pw[[
-        "player_id", "player_display_name", "position", "team", "week",
-        "fantasy_points", "kickoff", "active", "opp", *RAW_OFFENSE_COLS,
+    "player_id", "player_display_name", "position", "team", "week",
+    "fantasy_points", "kickoff", "active", "opp", "headshot_url", *RAW_OFFENSE_COLS,
     ]].rename(columns={"player_display_name": "name", "opp": "opponent"})
 
     tw = tw[tw["week"] <= max_week].copy()
@@ -254,10 +254,11 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     tw["name"] = tw["team"] + " D/ST"
     tw["position"] = "DST"
     tw["active"] = tw["kickoff"].notna()
+    tw["headshot_url"] = None  # team defenses aren't individual players -- no photo, ever
 
     dst_pool = tw[[
-        "player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opp",
-        *RAW_DST_COLS, "points_allowed",
+    "player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opp",
+    "headshot_url", *RAW_DST_COLS, "points_allowed",
     ]].rename(columns={"opp": "opponent"})
 
     pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
@@ -309,7 +310,7 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
         offense_pool[col] = 0.0
     offense_pool = offense_pool[
         ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent",
-         *RAW_OFFENSE_COLS]
+         "headshot_url", *RAW_OFFENSE_COLS]
     ].dropna(subset=["player_id", "name"])
 
     dst_pool = team_games.drop_duplicates(["season", "week", "team"]).copy()
@@ -317,14 +318,15 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
     dst_pool["name"] = dst_pool["team"] + " D/ST"
     dst_pool["position"] = "DST"
     dst_pool["fantasy_points"] = 0.0
-    dst_pool["active"] = dst_pool["kickoff"].notna()
+       dst_pool["active"] = dst_pool["kickoff"].notna()
     dst_pool["points_allowed"] = 0.0
+    dst_pool["headshot_url"] = None  # team defenses aren't individual players -- no photo, ever
     for col in RAW_DST_COLS:
         dst_pool[col] = 0.0
     dst_pool = dst_pool.rename(columns={"opp": "opponent"})
     dst_pool = dst_pool[
         ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent",
-         *RAW_DST_COLS, "points_allowed"]
+         "headshot_url", *RAW_DST_COLS, "points_allowed"]
     ]
 
     return pd.concat([offense_pool, dst_pool], ignore_index=True)
@@ -398,11 +400,18 @@ def upsert_nfl_players(supabase, pool):
     players = (
         pool.sort_values("week")
         .groupby("player_id", as_index=False)
-        .last()[["player_id", "name", "position", "team"]]
+        .last()[["player_id", "name", "position", "team", "headshot_url"]]
         .rename(columns={"name": "full_name", "team": "nfl_team"})
         .dropna(subset=["player_id", "full_name", "position", "nfl_team"])
     )
     rows = players.to_dict("records")
+    # headshot_url is legitimately null for plenty of rows (every team
+    # defense, plus any offensive player nflverse doesn't have a photo on
+    # file for) -- turn pandas' NaN into a real null rather than leaving a
+    # float NaN in the payload, which isn't valid JSON.
+    for r in rows:
+        if pd.isna(r.get("headshot_url")):
+            r["headshot_url"] = None
     upsert_in_batches(supabase, "nfl_players", rows, on_conflict="player_id")
     return len(rows)
 
