@@ -66,8 +66,10 @@ export default function NavBar() {
               <Link href="/commissioner" className="hover:underline underline-offset-4">
                 Commissioner
               </Link>
+                          {/* Team name once the commissioner's set one up for you;
+                  falls back to email before that (e.g. right after signup). */}
               <Link href="/account" className="hover:underline underline-offset-4">
-                {email}
+                {teamName ?? email}
               </Link>
             </>
           )}
