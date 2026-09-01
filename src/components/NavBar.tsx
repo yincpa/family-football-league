@@ -44,6 +44,9 @@ export default function NavBar() {
               <Link href="/roster?season=2026&week=1" className="hover:underline underline-offset-4">
                 My Lineup
               </Link>
+              <Link href="/chat" className="hover:underline underline-offset-4">
+                Chat
+              </Link>
               {/* Shown to everyone signed in, not just the commissioner —
                   the page itself checks leagues.commissioner_user_id and
                   shows a "not a commissioner" message to anyone else, so
@@ -66,6 +69,15 @@ export default function NavBar() {
               </Link>
             </>
           )}
+          {/* mailto: link, not a page -- always visible (signed in or not)
+              since anyone, including someone who hasn't signed up yet,
+              might need to reach the commissioner. */}
+          
+            href="mailto:yincpa@gmail.com"
+            className="hover:underline underline-offset-4 text-neutral-500"
+          >
+            Contact Commissioner
+          </a>
         </div>
       </nav>
     </header>
