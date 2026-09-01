@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getLeagueMessages, postLeagueMessage } from "@/lib/queries";
 import type { LeagueMessage } from "@/lib/types";
+import { TeamLogo } from "@/components/TeamLogoEditor";
 
 // Same env var the Standings page uses to find "the" league -- see the note
 // there. NEXT_PUBLIC_* vars are safe to read client-side; Next.js inlines
@@ -99,17 +100,28 @@ export default function ChatPage() {
           messages.map((m) => {
             const mine = m.user_id === myUserId;
             return (
-              <div key={m.id} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-                <span className="text-xs text-neutral-400 mb-0.5">
-                  {m.author_name} · {new Date(m.created_at).toLocaleString()}
-                </span>
-                <span
-                  className={`text-sm rounded-lg px-3 py-2 max-w-xs break-words ${
-                    mine ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-900"
-                  }`}
-                >
-                  {m.body}
-                </span>
+              <div
+                key={m.id}
+                className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"}`}
+              >
+                <TeamLogo
+                  emoji={m.author_team_logo_emoji}
+                  imageUrl={m.author_team_logo_image_url}
+                  teamName={m.author_name}
+                  size={28}
+                />
+                <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+                  <span className="text-xs text-neutral-400 mb-0.5">
+                    {m.author_name} · {new Date(m.created_at).toLocaleString()}
+                  </span>
+                  <span
+                    className={`text-sm rounded-lg px-3 py-2 max-w-xs break-words ${
+                      mine ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-900"
+                    }`}
+                  >
+                    {m.body}
+                  </span>
+                </div>
               </div>
             );
           })
