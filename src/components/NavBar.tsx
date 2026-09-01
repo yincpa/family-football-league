@@ -3,21 +3,33 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getMyTeam } from "@/lib/queries";
 
 export default function NavBar() {
   const [email, setEmail] = useState<string | null>(null);
+  const [teamName, setTeamName] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
+
+    async function loadUser() {
+      const { data } = await supabase.auth.getUser();
       setEmail(data.user?.email ?? null);
       setReady(true);
-    });
+      setTeamName(data.user ? (await getMyTeam(supabase))?.team_name ?? null : null);
+    }
+    loadUser();
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setEmail(session?.user?.email ?? null);
+      if (session?.user) {
+        getMyTeam(supabase).then((team) => setTeamName(team?.team_name ?? null));
+      } else {
+        setTeamName(null);
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
