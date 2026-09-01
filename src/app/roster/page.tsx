@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTeamLineup, getMyTeamId } from "@/lib/queries";
 import { ROSTER_SLOTS } from "@/lib/types";
 import RosterTable, { type RosterRow } from "@/components/RosterTable";
+import { TeamLogo } from "@/components/TeamLogoEditor";
 
 export default async function RosterPage({
   searchParams,
@@ -22,20 +23,31 @@ export default async function RosterPage({
   const teamId = sp.team ?? (await getMyTeamId(supabase)) ?? "";
   const lineup = teamId ? await getTeamLineup(supabase, teamId, season, week) : [];
 
+  // The team being viewed isn't necessarily "my" team (?team= lets a
+  // commissioner peek at someone else's), so this is looked up by teamId
+  // directly rather than reusing getMyTeam -- same read either way, "league
+  // members can read teams" RLS covers anyone in the same league.
+  const { data: viewedTeam } = teamId
+    ? await supabase.from("teams").select("team_name, logo_emoji, logo_image_url").eq("id", teamId).maybeSingle()
+    : { data: null };
+
   type StatsRow = {
     player_id: string;
     fantasy_points: number;
     kickoff: string | null;
-    nfl_players: { full_name: string } | { full_name: string }[] | null;
+    nfl_players: { full_name: string; headshot_url: string | null } | { full_name: string; headshot_url: string | null }[] | null;
   };
 
   const playerIds = lineup.map((l) => l.player_id).filter(Boolean) as string[];
-  let playerDetails: Record<string, { full_name: string; fantasy_points: number; kickoff: string | null }> = {};
+  let playerDetails: Record
+    string,
+    { full_name: string; fantasy_points: number; kickoff: string | null; headshot_url: string | null }
+  > = {};
 
   if (playerIds.length > 0) {
     const { data } = await supabase
       .from("player_week_stats")
-      .select("player_id, fantasy_points, kickoff, nfl_players(full_name)")
+      .select("player_id, fantasy_points, kickoff, nfl_players(full_name, headshot_url)")
       .in("player_id", playerIds)
       .eq("season", season)
       .eq("week", week);
@@ -45,7 +57,12 @@ export default async function RosterPage({
         const joined = Array.isArray(row.nfl_players) ? row.nfl_players[0] : row.nfl_players;
         return [
           row.player_id,
-          { full_name: joined?.full_name ?? row.player_id, fantasy_points: row.fantasy_points, kickoff: row.kickoff },
+          {
+            full_name: joined?.full_name ?? row.player_id,
+            fantasy_points: row.fantasy_points,
+            kickoff: row.kickoff,
+            headshot_url: joined?.headshot_url ?? null,
+          },
         ];
       })
     );
@@ -69,12 +86,24 @@ export default async function RosterPage({
       fullName: details?.full_name ?? null,
       points: details?.fantasy_points ?? null,
       kickoff: details?.kickoff ?? null,
+      headshotUrl: details?.headshot_url ?? null,
       locked,
     };
   });
 
   return (
     <main className="mx-auto max-w-2xl p-6">
+      {viewedTeam && (
+        <div className="flex items-center gap-2 mb-1">
+          <TeamLogo
+            emoji={viewedTeam.logo_emoji}
+            imageUrl={viewedTeam.logo_image_url}
+            teamName={viewedTeam.team_name}
+            size={28}
+          />
+          <span className="text-sm font-medium text-neutral-600">{viewedTeam.team_name}</span>
+        </div>
+      )}
       <h1 className="text-2xl font-semibold mb-1">
         Week {week} Lineup
       </h1>
