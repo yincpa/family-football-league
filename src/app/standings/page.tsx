@@ -45,7 +45,7 @@ export default async function StandingsPage() {
       )}
 
       <div className="overflow-x-auto border border-neutral-200 rounded-md">
-        <table className="border-collapse text-sm" style={{ minWidth: "100%" }}>
+        <table className="table-fixed border-collapse text-sm">
           <thead>
             <tr className="border-b border-neutral-200 text-neutral-500">
               <th className="sticky left-0 z-20 bg-white w-10 py-2 pl-3 pr-2 text-left">#</th>
