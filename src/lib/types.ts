@@ -66,10 +66,15 @@ export interface CommissionerTeamRow {
 
 /** A signed-up account, for the commissioner's owner-picker dropdown --
  * lets the commissioner choose a family member by email instead of typing
- * in a raw user id. */
+ * in a raw user id. full_name and requested_team_name are collected at
+ * signup time (see the signup form) so the commissioner can identify an
+ * unrecognized email and knows what team name to give them, even before
+ * a team has been created. */
 export interface Profile {
   id: string;
   email: string | null;
+  full_name: string | null;
+  requested_team_name: string | null;
 }
 
 export interface Lineup {
@@ -97,6 +102,19 @@ export interface WeeklyTeamPoints {
   team_id: string;
   week: number;
   points: number;
+}
+
+/** One message in a league's chat, joined with the author's display info
+ * (email/full_name) client-side -- same "two queries + merge" pattern used
+ * for CommissionerTeamRow's owner_email, since league_messages.user_id and
+ * profiles.id both reference auth.users independently. */
+export interface LeagueMessage {
+  id: string;
+  league_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  author_name: string; // full_name, falling back to email, falling back to a short id
 }
 
 /** A player joined with this week's stats, annotated with lock status —
