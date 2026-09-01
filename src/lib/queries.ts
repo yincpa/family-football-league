@@ -470,10 +470,13 @@ export async function renameTeam(supabase: SupabaseClient, teamId: string, teamN
 /**
  * The most recent messages in a league's chat (newest LIMIT last, i.e.
  * returned in chronological order, oldest first, ready to render top to
- * bottom). Author display name is resolved client-side against `profiles`
- * -- same two-query-plus-merge pattern as getCommissionerTeams -- preferring
- * full_name, then falling back to email, then a short id fragment so a
- * message never renders blank if a profile is somehow missing.
+ * bottom). Author display name and team logo are resolved client-side
+ * against `profiles` and `teams` -- same two-query-plus-merge pattern as
+ * getCommissionerTeams -- preferring full_name, then falling back to
+ * email, then a short id fragment so a message never renders blank if a
+ * profile is somehow missing. A sender with no team yet (or no logo set)
+ * just comes back with both logo fields null -- the chat UI falls back to
+ * showing no avatar for that message.
  */
 export async function getLeagueMessages(
   supabase: SupabaseClient,
@@ -491,19 +494,27 @@ export async function getLeagueMessages(
   if (!messages || messages.length === 0) return [];
 
   const userIds = [...new Set(messages.map((m) => m.user_id))];
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, email, full_name")
-    .in("id", userIds);
+  const [{ data: profiles, error: profilesError }, { data: teams, error: teamsError }] = await Promise.all([
+    supabase.from("profiles").select("id, email, full_name").in("id", userIds),
+    supabase.from("teams").select("owner_user_id, logo_emoji, logo_image_url").in("owner_user_id", userIds),
+  ]);
 
   if (profilesError) throw profilesError;
+  if (teamsError) throw teamsError;
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
+  const teamByOwnerId = new Map((teams ?? []).map((t) => [t.owner_user_id, t]));
 
   return messages
     .map((m) => {
       const author = profileById.get(m.user_id);
+      const authorTeam = teamByOwnerId.get(m.user_id);
       const author_name = author?.full_name || author?.email || `Family member (${m.user_id.slice(0, 8)})`;
-      return { ...m, author_name };
+      return {
+        ...m,
+        author_name,
+        author_team_logo_emoji: authorTeam?.logo_emoji ?? null,
+        author_team_logo_image_url: authorTeam?.logo_image_url ?? null,
+      };
     })
     .reverse(); // oldest first for rendering
 }
