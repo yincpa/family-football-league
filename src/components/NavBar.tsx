@@ -36,11 +36,11 @@ export default function NavBar() {
 
   return (
     <header className="border-b border-neutral-200">
-      <nav className="mx-auto max-w-3xl flex items-center justify-between px-6 py-3 text-sm">
-        <Link href="/" className="font-semibold">
+           <nav className="mx-auto max-w-5xl flex items-center justify-between gap-6 px-6 py-3 text-sm overflow-x-auto whitespace-nowrap">
+        <Link href="/standings" className="font-semibold shrink-0">
           Yin Family Football League
         </Link>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 shrink-0">
           <Link href="/standings" className="hover:underline underline-offset-4">
             Standings
           </Link>
