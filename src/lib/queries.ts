@@ -3,6 +3,7 @@ import type {
   AvailablePlayer,
   CommissionedLeague,
   CommissionerTeamRow,
+  LeagueMessage,
   Lineup,
   Position,
   Profile,
@@ -319,7 +320,10 @@ export async function getCommissionerTeams(
  * from a list" instead of finding and pasting a raw user id.
  */
 export async function getAllProfiles(supabase: SupabaseClient): Promise<Profile[]> {
-  const { data, error } = await supabase.from("profiles").select("id, email").order("email");
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, email, full_name, requested_team_name")
+    .order("email");
 
   if (error) throw error;
   return data ?? [];
@@ -365,5 +369,65 @@ export async function reassignTeamOwner(
  */
 export async function renameTeam(supabase: SupabaseClient, teamId: string, teamName: string): Promise<void> {
   const { error } = await supabase.from("teams").update({ team_name: teamName }).eq("id", teamId);
+  if (error) throw error;
+}
+
+/**
+ * The most recent messages in a league's chat (newest LIMIT last, i.e.
+ * returned in chronological order, oldest first, ready to render top to
+ * bottom). Author display name is resolved client-side against `profiles`
+ * -- same two-query-plus-merge pattern as getCommissionerTeams -- preferring
+ * full_name, then falling back to email, then a short id fragment so a
+ * message never renders blank if a profile is somehow missing.
+ */
+export async function getLeagueMessages(
+  supabase: SupabaseClient,
+  leagueId: string,
+  limit = 200
+): Promise<LeagueMessage[]> {
+  const { data: messages, error } = await supabase
+    .from("league_messages")
+    .select("id, league_id, user_id, body, created_at")
+    .eq("league_id", leagueId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  if (!messages || messages.length === 0) return [];
+
+  const userIds = [...new Set(messages.map((m) => m.user_id))];
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, email, full_name")
+    .in("id", userIds);
+
+  if (profilesError) throw profilesError;
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
+
+  return messages
+    .map((m) => {
+      const author = profileById.get(m.user_id);
+      const author_name = author?.full_name || author?.email || `Family member (${m.user_id.slice(0, 8)})`;
+      return { ...m, author_name };
+    })
+    .reverse(); // oldest first for rendering
+}
+
+/**
+ * Posts a new chat message as the currently logged-in user. Relies on the
+ * "league members can post messages" RLS policy (checks league_id against
+ * user_league_ids()/user_commissioned_league_ids() and user_id = auth.uid())
+ * to enforce that only actual league members can post, and only as
+ * themselves -- no separate authorization check needed here.
+ */
+export async function postLeagueMessage(supabase: SupabaseClient, leagueId: string, body: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("You must be signed in to post a message.");
+
+  const { error } = await supabase
+    .from("league_messages")
+    .insert({ league_id: leagueId, user_id: user.id, body });
   if (error) throw error;
 }
