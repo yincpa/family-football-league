@@ -40,7 +40,7 @@ export default function NavBar() {
                <Link href="/" className="font-semibold shrink-0">
           Yin Family Football League
         </Link>
-              <div className="flex items-center gap-4 shrink-0">
+              <div className="flex items-center gap-8 shrink-0">
           {email && (
             <>
               {/* Team name once the commissioner's set one up for you;
@@ -70,7 +70,7 @@ export default function NavBar() {
                   the page itself checks leagues.commissioner_user_id, and
                   RLS enforces the same restriction at the database level,
                   so there's no separate authorization check needed here. */}
-              <Link href="/commissioner" className="hover:underline underline-offset-4">
+              <Link href="/commissioner" className="text-neutral-300 hover:underline underline-offset-4">
                 Commissioner
               </Link>
             </>
