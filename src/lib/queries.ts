@@ -100,13 +100,14 @@ export async function getMyTeamId(supabase: SupabaseClient): Promise<string | nu
 }
 
 /**
- * The current user's own team (id + name), or null if they're not signed in
- * or don't have a team yet. Used by the nav bar to show your team name
- * instead of your raw email once the commissioner has set one up for you.
+ * The current user's own team (id + name + logo), or null if they're not
+ * signed in or don't have a team yet. Used by the nav bar to show your team
+ * name instead of your raw email once the commissioner has set one up for
+ * you, and by the Account page to show/edit your logo.
  */
 export async function getMyTeam(
   supabase: SupabaseClient
-): Promise<{ id: string; team_name: string } | null> {
+): Promise<{ id: string; team_name: string; logo_emoji: string | null; logo_image_url: string | null } | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -114,13 +115,65 @@ export async function getMyTeam(
 
   const { data, error } = await supabase
     .from("teams")
-    .select("id, team_name")
+    .select("id, team_name, logo_emoji, logo_image_url")
     .eq("owner_user_id", user.id)
     .limit(1)
     .maybeSingle();
 
   if (error) throw error;
   return data ?? null;
+}
+
+
+/**
+ * Sets (or clears) the logo for a team you own -- an emoji, an uploaded
+ * image's URL, or both null to remove it. The two are mutually exclusive:
+ * whichever one you're setting, pass the other as null to clear it.
+ *
+ * Goes through the set_my_team_logo() database function rather than a
+ * plain `.update()` on `teams`, deliberately: team owners otherwise have no
+ * UPDATE permission on `teams` at all (renaming/reassigning stays
+ * commissioner-only, per how that feature was built). The function is
+ * SECURITY DEFINER and only ever touches the logo_emoji/logo_image_url
+ * columns on a team you actually own, so it can't be used to rename a team
+ * or take over someone else's.
+ */
+export async function setMyTeamLogo(
+  supabase: SupabaseClient,
+  teamId: string,
+  logoEmoji: string | null,
+  logoImageUrl: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc("set_my_team_logo", {
+    p_team_id: teamId,
+    p_emoji: logoEmoji,
+    p_image_url: logoImageUrl,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Uploads an image file to the team-logos storage bucket and returns its
+ * public URL (does NOT save it to the team yet -- call setMyTeamLogo with
+ * the result to do that, same as any other "upload, then save" flow).
+ *
+ * Uses a fixed path per team (`${teamId}/logo`) with upsert so re-uploading
+ * overwrites the old file instead of accumulating orphaned ones, and tacks
+ * a cache-busting `?v=` timestamp onto the URL we hand back and store --
+ * without it, a re-upload would keep the same URL and browsers/CDNs could
+ * keep showing the old cached image after a change.
+ */
+export async function uploadTeamLogo(supabase: SupabaseClient, teamId: string, file: File): Promise<string> {
+  const path = `${teamId}/logo`;
+  const { error: uploadError } = await supabase.storage
+    .from("team-logos")
+    .upload(path, file, { upsert: true, contentType: file.type });
+  if (uploadError) throw uploadError;
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("team-logos").getPublicUrl(path);
+  return `${publicUrl}?v=${Date.now()}`;
 }
 
 export async function getTeamLineup(
