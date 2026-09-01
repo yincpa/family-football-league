@@ -89,6 +89,16 @@ export interface StandingsRow {
   total_points: number;
 }
 
+/** One team's points for one week -- from the `team_week_points` view. Only
+ * has a row for a team/week once that team has a lineup for that week (see
+ * getWeeklyTeamPoints), which is what makes "season-to-date" work for free:
+ * a week nobody's been auto-filled for yet just doesn't appear. */
+export interface WeeklyTeamPoints {
+  team_id: string;
+  week: number;
+  points: number;
+}
+
 /** A player joined with this week's stats, annotated with lock status —
  * the shape the "available players" tab and roster editor both use.
  *
