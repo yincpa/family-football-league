@@ -40,12 +40,22 @@ export default function NavBar() {
                <Link href="/" className="font-semibold shrink-0">
           Yin Family Football League
         </Link>
-        <div className="flex items-center gap-4 shrink-0">
-          <Link href="/standings" className="hover:underline underline-offset-4">
-            Standings
-          </Link>
+              <div className="flex items-center gap-4 shrink-0">
           {email && (
             <>
+              {/* Team name once the commissioner's set one up for you;
+                  falls back to email before that (e.g. right after signup).
+                  Placed first, ahead of the other tabs, so your team is
+                  the first thing you see. */}
+              <Link href="/account" className="text-blue-600 font-medium hover:underline underline-offset-4">
+                {teamName ?? email}
+              </Link>
+              <Link href="/standings" className="hover:underline underline-offset-4">
+                Standings
+              </Link>
+              <Link href="/roster?season=2026&week=1" className="hover:underline underline-offset-4">
+                My Lineup
+              </Link>
               {/* TEMP: hardcoded to season 2026 week 1 (the live season) so
                   everyone lands on the real league by default — remove this
                   query string entirely once the pages' own defaulting logic
@@ -53,25 +63,22 @@ export default function NavBar() {
               <Link href="/players?season=2026&week=1" className="hover:underline underline-offset-4">
                 Players
               </Link>
-              <Link href="/roster?season=2026&week=1" className="hover:underline underline-offset-4">
-                My Lineup
-              </Link>
               <Link href="/chat" className="hover:underline underline-offset-4">
                 Chat
               </Link>
               {/* Shown to everyone signed in, not just the commissioner —
-                  the page itself checks leagues.commissioner_user_id and
-                  shows a "not a commissioner" message to anyone else, so
-                  there's no separate authorization check needed here. */}
+                  the page itself checks leagues.commissioner_user_id, and
+                  RLS enforces the same restriction at the database level,
+                  so there's no separate authorization check needed here. */}
               <Link href="/commissioner" className="hover:underline underline-offset-4">
                 Commissioner
               </Link>
-                          {/* Team name once the commissioner's set one up for you;
-                  falls back to email before that (e.g. right after signup). */}
-              <Link href="/account" className="hover:underline underline-offset-4">
-                {teamName ?? email}
-              </Link>
             </>
+          )}
+          {!email && (
+            <Link href="/standings" className="hover:underline underline-offset-4">
+              Standings
+            </Link>
           )}
           {ready && !email && (
             <>
