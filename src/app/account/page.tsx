@@ -59,7 +59,7 @@ export default async function AccountPage() {
       {/* mailto: link, moved here from the nav bar to de-clutter it --
           this is the one place everyone signed in reliably passes through. */}
       
-        href="mailto:yincpa@gmail.com"
+       <a href="mailto:yincpa@gmail.com"
         className="block text-sm text-neutral-500 underline underline-offset-4 mb-6"
       >
         Contact Commissioner
