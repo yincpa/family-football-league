@@ -454,9 +454,21 @@ def process_team(supabase, team_id, team_name, pool, prior_pool, now_utc):
         pool_week = pool[pool["week"] == week]
         if pool_week.empty:
             continue
-        earliest_kickoff = pool_week["kickoff"].min()
-        if pd.isna(earliest_kickoff) or earliest_kickoff > now_utc:
-            continue  # this week hasn't started yet — not time to auto-fill
+
+        if week > 1:
+            # Only ready to auto-fill once the PREVIOUS week has actually
+            # kicked off. This is what stops the algorithm from pre-claiming
+            # the whole season's best players the first time it ever runs —
+            # each week only becomes fillable once the one before it is
+            # underway. Week 1 has no previous week to wait on, so it's
+            # eligible as soon as its own pool exists (even a preseason
+            # roster preview with 0 points), which is what lets teams see
+            # and adjust their opening lineup ahead of kickoff instead of
+            # only after it's already locked.
+            prior_week_pool = pool[pool["week"] == week - 1]
+            latest_prior_kickoff = prior_week_pool["kickoff"].max()
+            if pd.isna(latest_prior_kickoff) or latest_prior_kickoff > now_utc:
+                continue  # previous week hasn't started yet — not time to auto-fill this one
 
         rank_df = rank_pool(pool, week, prior_season_pool=prior_pool if week == 1 else None)
         lineup = auto_fill_lineup(used_players, pool_week, rank_df)
