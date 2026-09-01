@@ -7,6 +7,7 @@ import type {
   Position,
   Profile,
   StandingsRow,
+  WeeklyTeamPoints,
 } from "./types";
 
 export async function getStandings(
@@ -18,6 +19,40 @@ export async function getStandings(
     .select("*")
     .eq("league_id", leagueId)
     .order("total_points", { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Every team's points, broken out by week, for a league -- powers the
+ * week-by-week columns on the Standings page. Two queries (teams in this
+ * league, then their week points) rather than a single joined query, same
+ * pattern used elsewhere in this file, since `team_week_points` has no
+ * direct league_id column to filter on.
+ *
+ * A team only has a row for a week once it actually has a lineup for that
+ * week (see the view definition in schema.sql), so this naturally covers
+ * exactly "season-to-date" -- weeks nobody's been auto-filled for yet just
+ * don't show up, no separate "current week" cutoff logic needed here.
+ */
+export async function getWeeklyTeamPoints(
+  supabase: SupabaseClient,
+  leagueId: string
+): Promise<WeeklyTeamPoints[]> {
+  const { data: teams, error: teamsError } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("league_id", leagueId);
+
+  if (teamsError) throw teamsError;
+  const teamIds = (teams ?? []).map((t) => t.id);
+  if (teamIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("team_week_points")
+    .select("team_id, week, points")
+    .in("team_id", teamIds);
 
   if (error) throw error;
   return data ?? [];
