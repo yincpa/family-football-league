@@ -318,7 +318,7 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
     dst_pool["name"] = dst_pool["team"] + " D/ST"
     dst_pool["position"] = "DST"
     dst_pool["fantasy_points"] = 0.0
-       dst_pool["active"] = dst_pool["kickoff"].notna()
+    dst_pool["active"] = dst_pool["kickoff"].notna()
     dst_pool["points_allowed"] = 0.0
     dst_pool["headshot_url"] = None  # team defenses aren't individual players -- no photo, ever
     for col in RAW_DST_COLS:
