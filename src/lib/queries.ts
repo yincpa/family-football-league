@@ -153,27 +153,25 @@ export async function setMyTeamLogo(
 }
 
 /**
- * Uploads an image file to the team-logos storage bucket and returns its
- * public URL (does NOT save it to the team yet -- call setMyTeamLogo with
- * the result to do that, same as any other "upload, then save" flow).
+ * Uploads an image file for a team's logo and returns its public URL (does
+ * NOT save it to the team yet -- call setMyTeamLogo with the result to do
+ * that, same as any other "upload, then save" flow).
  *
- * Uses a fixed path per team (`${teamId}/logo`) with upsert so re-uploading
- * overwrites the old file instead of accumulating orphaned ones, and tacks
- * a cache-busting `?v=` timestamp onto the URL we hand back and store --
- * without it, a re-upload would keep the same URL and browsers/CDNs could
- * keep showing the old cached image after a change.
+ * Goes through the /api/upload-logo server route rather than uploading
+ * straight from the browser to Supabase Storage -- Storage's row-level
+ * security policies weren't cooperating for reasons we couldn't pin down
+ * after a lot of digging, so the server route does the same "is this your
+ * team" check in plain code instead, then writes the file using
+ * server-only credentials that bypass that particular RLS puzzle entirely.
  */
-export async function uploadTeamLogo(supabase: SupabaseClient, teamId: string, file: File): Promise<string> {
-  const path = `${teamId}/logo`;
-  const { error: uploadError } = await supabase.storage
-    .from("team-logos")
-    .upload(path, file, { upsert: true, contentType: file.type });
-  if (uploadError) throw uploadError;
-
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from("team-logos").getPublicUrl(path);
-  return `${publicUrl}?v=${Date.now()}`;
+export async function uploadTeamLogo(teamId: string, file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("teamId", teamId);
+  formData.append("file", file);
+  const res = await fetch("/api/upload-logo", { method: "POST", body: formData });
+  const result = await res.json();
+  if (!res.ok) throw new Error(result.error ?? "Upload failed.");
+  return result.url;
 }
 
 export async function getTeamLineup(
