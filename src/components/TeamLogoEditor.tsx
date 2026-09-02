@@ -112,7 +112,7 @@ export default function TeamLogoEditor({
     setError(null);
     try {
       const supabase = createClient();
-      const url = await uploadTeamLogo(supabase, teamId, file);
+     const url = await uploadTeamLogo(teamId, file);
       await setMyTeamLogo(supabase, teamId, null, url);
       setImageUrl(url);
       setEmoji(null);
