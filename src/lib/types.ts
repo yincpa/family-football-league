@@ -178,7 +178,11 @@ export interface AvailablePlayer extends NflPlayer {
   def_sacks: number | null;
   def_ints: number | null;
   def_fumble_rec: number | null;
-  /** A team in a league, for the League Lineups team-picker dropdown -- just
+  def_tds: number | null;
+  points_allowed: number | null;
+}
+
+/** A team in a league, for the League Lineups team-picker dropdown -- just
  * enough to render a name (and logo, where a spot for one exists) in a
  * <select>, not the full Team shape (which also carries league_id/
  * owner_user_id that this doesn't need). */
@@ -187,7 +191,4 @@ export interface LeagueTeamOption {
   team_name: string;
   logo_emoji: string | null;
   logo_image_url: string | null;
-}
-  def_tds: number | null;
-  points_allowed: number | null;
 }
