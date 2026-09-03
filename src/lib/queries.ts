@@ -4,6 +4,7 @@ import type {
   CommissionedLeague,
   CommissionerTeamRow,
   LeagueMessage,
+  LeagueTeamOption,
   Lineup,
   Position,
   Profile,
@@ -359,6 +360,8 @@ export async function getAvailablePlayers(
       ...row.nfl_players,
       fantasy_points: row.fantasy_points,
       kickoff: row.kickoff,
+      opponent: row.opponent,
+      opponent_is_home: row.opponent_is_home,
       active: row.active,
       locked: row.kickoff ? new Date(row.kickoff).getTime() <= now : false,
       avg_points: averages.get(row.player_id) ?? null,
@@ -400,6 +403,25 @@ export async function getEligibleCandidates(
   return players
     .filter((p) => positions.includes(p.position) && !p.locked)
     .sort((a, b) => b.fantasy_points - a.fantasy_points);
+}
+
+/**
+ * Every team in a league (id, name, logo), sorted by name -- powers the
+ * team-picker dropdown on the League Lineups page (view-only lineups for
+ * every team in the league, not just your own). Anyone in the league can
+ * see every team here via the same "league members can read teams" RLS
+ * policy that already backs getMyTeam/getCommissionerTeams -- no separate
+ * authorization check needed.
+ */
+export async function getLeagueTeams(supabase: SupabaseClient, leagueId: string): Promise<LeagueTeamOption[]> {
+  const { data, error } = await supabase
+    .from("teams")
+    .select("id, team_name, logo_emoji, logo_image_url")
+    .eq("league_id", leagueId)
+    .order("team_name");
+
+  if (error) throw error;
+  return data ?? [];
 }
 
 /**
