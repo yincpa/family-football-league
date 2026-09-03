@@ -12,8 +12,19 @@ export type RosterRow = {
   points: number | null;
   kickoff: string | null;
   headshotUrl: string | null;
+  opponent: string | null;
+  opponentIsHome: boolean | null;
   locked: boolean;
 };
+
+// "vs SEA" for a home game, "@ SEA" for a road game, or null on a bye (no
+// opponent that week) -- shared by the main roster rows and the swap
+// candidate list below, since both need the same "who are they playing"
+// context to help decide whether to start someone.
+function formatOpponent(opponent: string | null, isHome: boolean | null): string | null {
+  if (!opponent) return null;
+  return isHome ? `vs ${opponent}` : `@ ${opponent}`;
+}
 
 // Small, round, falls back to a plain gray circle (not an error icon) if a
 // player has no headshot on file -- true for a handful of obscure/deep-bench
@@ -43,11 +54,17 @@ export default function RosterTable({
   season,
   week,
   initialRows,
+  readOnly = false,
 }: {
   teamId: string;
   season: number;
   week: number;
   initialRows: RosterRow[];
+  // True on the League Lineups page (viewing a teammate's lineup) -- hides
+  // the Swap column entirely rather than showing a button that would just
+  // fail server-side, since /api/swap already rejects edits to a team you
+  // don't own.
+  readOnly?: boolean;
 }) {
   const [rows, setRows] = useState<RosterRow[]>(initialRows);
   const [openSlot, setOpenSlot] = useState<Slot | null>(null);
@@ -99,6 +116,8 @@ export default function RosterTable({
                 points: candidate.fantasy_points,
                 kickoff: candidate.kickoff,
                 headshotUrl: candidate.headshot_url,
+                opponent: candidate.opponent,
+                opponentIsHome: candidate.opponent_is_home,
                 locked: candidate.locked,
               }
             : r
@@ -120,7 +139,7 @@ export default function RosterTable({
           <th className="py-2 pr-4">Player</th>
           <th className="py-2 pr-4 text-right">Pts</th>
           <th className="py-2">Status</th>
-          <th className="py-2"></th>
+          {!readOnly && <th className="py-2"></th>}
         </tr>
       </thead>
       <tbody>
@@ -128,6 +147,7 @@ export default function RosterTable({
           const row = rows.find((r) => r.slot === slot);
           const isOpen = openSlot === slot;
           const error = errorBySlot[slot];
+          const opponentLabel = row ? formatOpponent(row.opponent, row.opponentIsHome) : null;
           return (
             <Fragment key={slot}>
               <tr className="border-b border-neutral-100">
@@ -136,6 +156,9 @@ export default function RosterTable({
                   <span className="flex items-center gap-2">
                     {row?.playerId && <Headshot url={row.headshotUrl} alt={row.fullName ?? ""} />}
                     {row?.fullName ?? "— empty —"}
+                    {opponentLabel && (
+                      <span className="text-xs font-normal text-neutral-400">{opponentLabel}</span>
+                    )}
                   </span>
                 </td>
                 <td className="py-2 pr-4 text-right tabular-nums">
@@ -150,18 +173,20 @@ export default function RosterTable({
                     <span className="text-xs text-emerald-600">editable</span>
                   )}
                 </td>
-                <td className="py-2 text-right">
-                  {row && !row.locked && (
-                    <button
-                      onClick={() => toggleSlot(slot)}
-                      className="text-xs underline underline-offset-4 text-neutral-500 hover:text-neutral-800"
-                    >
-                      {isOpen ? "Cancel" : "Swap"}
-                    </button>
-                  )}
-                </td>
+                {!readOnly && (
+                  <td className="py-2 text-right">
+                    {row && !row.locked && (
+                      <button
+                        onClick={() => toggleSlot(slot)}
+                        className="text-xs underline underline-offset-4 text-neutral-500 hover:text-neutral-800"
+                      >
+                        {isOpen ? "Cancel" : "Swap"}
+                      </button>
+                    )}
+                  </td>
+                )}
               </tr>
-              {isOpen && (
+              {!readOnly && isOpen && (
                 <tr className="border-b border-neutral-100 bg-neutral-50">
                   <td colSpan={5} className="py-3 px-4">
                     {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
@@ -172,12 +197,16 @@ export default function RosterTable({
                     ) : (
                       <ul className="flex flex-col gap-1 max-h-64 overflow-y-auto">
                         {candidates.map((c) => (
-                        <li key={c.player_id} className="flex items-center justify-between text-sm">
+                          <li key={c.player_id} className="flex items-center justify-between text-sm">
                             <span className="flex items-center gap-2">
                               <Headshot url={c.headshot_url} alt={c.full_name} size={24} />
                               {c.full_name}{" "}
                               <span className="text-neutral-400">
-                                ({c.position} · {c.nfl_team})
+                                ({c.position} · {c.nfl_team}
+                                {formatOpponent(c.opponent, c.opponent_is_home)
+                                  ? ` · ${formatOpponent(c.opponent, c.opponent_is_home)}`
+                                  : ""}
+                                )
                               </span>
                             </span>
                             <span className="flex items-center gap-3">
