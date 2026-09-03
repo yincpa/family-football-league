@@ -60,6 +60,9 @@ export default function NavBar() {
                   everyone lands on the real league by default — remove this
                   query string entirely once the pages' own defaulting logic
                   is trusted to always pick the right season/week on its own. */}
+              <Link href="/league-lineups?season=2026&week=1" className="hover:underline underline-offset-4">
+                League Lineups
+              </Link>
               <Link href="/players?season=2026&week=1" className="hover:underline underline-offset-4">
                 Players
               </Link>
