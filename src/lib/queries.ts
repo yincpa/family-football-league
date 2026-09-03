@@ -424,6 +424,47 @@ export async function getLeagueTeams(supabase: SupabaseClient, leagueId: string)
   return data ?? [];
 }
 
+
+/**
+ * The most recent week whose games have actually started, for the given
+ * season -- used to cap the League Lineups week-picker so you can look
+ * back at any week that's already happened, but not jump ahead to a
+ * future week that hasn't kicked off yet. No separate "current week"
+ * column exists, so this is derived from player_week_stats.kickoff:
+ * looks at each week's EARLIEST kickoff (a week "starts" the moment its
+ * first game does, not when every game has), and finds the highest week
+ * number whose earliest kickoff is already in the past. Falls back to
+ * week 1 before any of this season's games have kicked off yet (true
+ * right now, pre-Sept-9 preseason).
+ */
+export async function getCurrentWeek(supabase: SupabaseClient, season: number): Promise<number> {
+  const { data, error } = await supabase
+    .from("player_week_stats")
+    .select("week, kickoff")
+    .eq("season", season)
+    .not("kickoff", "is", null)
+    .order("week");
+
+  if (error) throw error;
+
+  const now = Date.now();
+  const firstKickoffByWeek: { [week: number]: number } = {};
+  for (const row of data ?? []) {
+    const week = row.week as number;
+    const t = new Date(row.kickoff as string).getTime();
+    if (firstKickoffByWeek[week] === undefined || t < firstKickoffByWeek[week]) {
+      firstKickoffByWeek[week] = t;
+    }
+  }
+
+  let currentWeek = 1;
+  for (const weekStr of Object.keys(firstKickoffByWeek)) {
+    const week = Number(weekStr);
+    if (firstKickoffByWeek[week] <= now && week > currentWeek) currentWeek = week;
+  }
+  return currentWeek;
+}
+
 /**
  * The league(s) the logged-in user commissions, i.e. leagues where
  * leagues.commissioner_user_id matches them. Empty for anyone who isn't a
