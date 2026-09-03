@@ -40,19 +40,28 @@ export default async function RosterPage({
     player_id: string;
     fantasy_points: number;
     kickoff: string | null;
+    opponent: string | null;
+    opponent_is_home: boolean | null;
     nfl_players: { full_name: string; headshot_url: string | null } | { full_name: string; headshot_url: string | null }[] | null;
   };
 
   const playerIds = lineup.map((l) => l.player_id).filter(Boolean) as string[];
-  let playerDetails: Record<
+  let playerDetails: Record
     string,
-    { full_name: string; fantasy_points: number; kickoff: string | null; headshot_url: string | null }
+    {
+      full_name: string;
+      fantasy_points: number;
+      kickoff: string | null;
+      opponent: string | null;
+      opponent_is_home: boolean | null;
+      headshot_url: string | null;
+    }
   > = {};
 
   if (playerIds.length > 0) {
     const { data } = await supabase
       .from("player_week_stats")
-      .select("player_id, fantasy_points, kickoff, nfl_players(full_name, headshot_url)")
+      .select("player_id, fantasy_points, kickoff, opponent, opponent_is_home, nfl_players(full_name, headshot_url)")
       .in("player_id", playerIds)
       .eq("season", season)
       .eq("week", week);
@@ -66,6 +75,8 @@ export default async function RosterPage({
             full_name: joined?.full_name ?? row.player_id,
             fantasy_points: row.fantasy_points,
             kickoff: row.kickoff,
+            opponent: row.opponent,
+            opponent_is_home: row.opponent_is_home,
             headshot_url: joined?.headshot_url ?? null,
           },
         ];
@@ -92,6 +103,8 @@ export default async function RosterPage({
       points: details?.fantasy_points ?? null,
       kickoff: details?.kickoff ?? null,
       headshotUrl: details?.headshot_url ?? null,
+      opponent: details?.opponent ?? null,
+      opponentIsHome: details?.opponent_is_home ?? null,
       locked,
     };
   });
