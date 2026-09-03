@@ -649,7 +649,7 @@ def main():
     print("Checking weekly awards...")
     for league_id in league_ids:
         for week in range(1, MAX_WEEK + 1):
-    compute_weekly_awards(supabase, league_id, week, pool, now_utc)
+        compute_weekly_awards(supabase, league_id, week, pool, now_utc)
   
     print("Done.")
 
