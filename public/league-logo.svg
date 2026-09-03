@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <path id="topArc" d="M 48.58,145.99 A 76 76 0 1 1 191.42,145.99" fill="none" />
+    <radialGradient id="navyFill" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#1d3f6e" />
+      <stop offset="100%" stop-color="#0d2340" />
+    </radialGradient>
+  </defs>
+
+  <circle cx="120" cy="120" r="116" fill="#c9a24b" />
+  <circle cx="120" cy="120" r="110" fill="url(#navyFill)" stroke="#c9a24b" stroke-width="3" />
+  <circle cx="120" cy="120" r="98" fill="none" stroke="#c9a24b" stroke-width="1.5" />
+
+  <text font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700"
+        fill="#f2d38a" letter-spacing="0.4">
+    <textPath href="#topArc" startOffset="50%" text-anchor="middle">YIN FAMILY FANTASY FOOTBALL GM</textPath>
+  </text>
+
+  <g transform="translate(120,121) rotate(-22)">
+    <ellipse cx="0" cy="0" rx="44" ry="24" fill="#f2d38a" stroke="#0d2340" stroke-width="3" />
+    <line x1="-15" y1="0" x2="15" y2="0" stroke="#0d2340" stroke-width="2.5" stroke-linecap="round" />
+    <line x1="-9.5" y1="-5.3" x2="-9.5" y2="5.3" stroke="#0d2340" stroke-width="2" stroke-linecap="round" />
+    <line x1="-3.2" y1="-5.3" x2="-3.2" y2="5.3" stroke="#0d2340" stroke-width="2" stroke-linecap="round" />
+    <line x1="3.2" y1="-5.3" x2="3.2" y2="5.3" stroke="#0d2340" stroke-width="2" stroke-linecap="round" />
+    <line x1="9.5" y1="-5.3" x2="9.5" y2="5.3" stroke="#0d2340" stroke-width="2" stroke-linecap="round" />
+  </g>
+
+  <g fill="#f2d38a">
+    <path d="M 60 158 l 2.2 4.6 5 0.7 -3.6 3.5 0.9 5 -4.5 -2.4 -4.5 2.4 0.9 -5 -3.6 -3.5 5 -0.7 z" />
+    <path d="M 180 158 l 2.2 4.6 5 0.7 -3.6 3.5 0.9 5 -4.5 -2.4 -4.5 2.4 0.9 -5 -3.6 -3.5 5 -0.7 z" />
+  </g>
+
+  <text x="120" y="186" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif"
+        font-size="9" font-weight="600" fill="#8fa8c9" letter-spacing="1.5">EST. 2026</text>
+</svg>
