@@ -46,7 +46,7 @@ export default async function RosterPage({
   };
 
   const playerIds = lineup.map((l) => l.player_id).filter(Boolean) as string[];
-  let playerDetails: Record
+  let playerDetails: Record<
     string,
     {
       full_name: string;
