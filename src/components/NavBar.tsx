@@ -38,7 +38,7 @@ export default function NavBar() {
     <header className="border-b border-neutral-200">
            <nav className="mx-auto max-w-5xl flex items-center justify-between gap-6 px-6 py-3 text-sm overflow-x-auto whitespace-nowrap">
                <Link href="/" className="font-semibold shrink-0">
-          Yin Family Football League
+          2026 Yin Family Fantasy Football GM League
         </Link>
               <div className="flex items-center gap-8 shrink-0">
           {email && (
