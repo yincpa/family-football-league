@@ -20,6 +20,14 @@ function tabPositions(tab: PositionTab): Position[] | null {
   return [tab];
 }
 
+// "vs SEA" for a home game, "@ SEA" for a road game -- relevant context for
+// deciding whether to start someone (e.g. a tough road matchup), so it sits
+// right next to Team rather than being buried in a stat column.
+function formatOpponent(opponent: string | null, isHome: boolean | null): string {
+  if (!opponent) return "—";
+  return isHome ? `vs ${opponent}` : `@ ${opponent}`;
+}
+
 // The stat columns worth showing side-by-side for each position -- this is
 // the actual "who do I start" comparison, so only fields relevant to that
 // position appear (a kicker's FG/PAT, not a QB's passing line, etc).
@@ -66,7 +74,7 @@ const POSITION_STAT_COLUMNS: Partial<Record<Position, { key: SortKey; label: str
 
 function renderCell(p: AvailablePlayer, key: SortKey) {
   switch (key) {
-        case "full_name":
+    case "full_name":
       return (
         <span className="flex items-center gap-2">
           {p.headshot_url ? (
@@ -86,6 +94,8 @@ function renderCell(p: AvailablePlayer, key: SortKey) {
       return p.position;
     case "nfl_team":
       return p.nfl_team;
+    case "opponent":
+      return formatOpponent(p.opponent, p.opponent_is_home);
     case "fantasy_points":
       return p.fantasy_points.toFixed(2);
     case "avg_points":
@@ -205,6 +215,7 @@ function PlayersTable() {
     { key: "full_name", label: "Player" },
     ...(singlePosition ? [] : [{ key: "position" as SortKey, label: "Pos" }]),
     { key: "nfl_team", label: "Team" },
+    { key: "opponent", label: "Opp" },
     ...statColumns,
     { key: "fantasy_points", label: `Wk ${week} Pts` },
     { key: "avg_points", label: "Avg Pts" },
