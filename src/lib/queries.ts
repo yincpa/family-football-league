@@ -9,6 +9,7 @@ import type {
   Profile,
   StandingsRow,
   TeamLogo,
+  WeeklyAward,
   WeeklyTeamPoints,
 } from "./types";
 
