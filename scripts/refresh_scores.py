@@ -205,16 +205,18 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     games = add_kickoff_utc(games)
 
     home = games[["season", "week", "home_team", "away_team", "kickoff", "game_id", "home_score", "away_score"]].rename(
-        columns={"home_team": "team", "away_team": "opp"}
+     columns={"home_team": "team", "away_team": "opp"}
     )
     home["points_allowed"] = games["away_score"]
+    home["is_home"] = True
     away = games[["season", "week", "away_team", "home_team", "kickoff", "game_id", "home_score", "away_score"]].rename(
         columns={"away_team": "team", "home_team": "opp"}
     )
     away["points_allowed"] = games["home_score"]
+    away["is_home"] = False
     team_games = pd.concat(
-        [home[["season", "week", "team", "opp", "kickoff", "game_id", "points_allowed"]],
-         away[["season", "week", "team", "opp", "kickoff", "game_id", "points_allowed"]]]
+        [home[["season", "week", "team", "opp", "kickoff", "game_id", "points_allowed", "is_home"]],
+         away[["season", "week", "team", "opp", "kickoff", "game_id", "points_allowed", "is_home"]]]
     )
 
     pw = pw[pw["week"] <= max_week].copy()
@@ -242,8 +244,8 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     pw = pw.merge(team_games, on=["season", "week", "team"], how="left")
 
     offense_pool = pw[[
-    "player_id", "player_display_name", "position", "team", "week",
-    "fantasy_points", "kickoff", "active", "opp", "headshot_url", *RAW_OFFENSE_COLS,
+        "player_id", "player_display_name", "position", "team", "week",
+        "fantasy_points", "kickoff", "active", "opp", "is_home", "headshot_url", *RAW_OFFENSE_COLS,
     ]].rename(columns={"player_display_name": "name", "opp": "opponent"})
 
     tw = tw[tw["week"] <= max_week].copy()
@@ -260,10 +262,15 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     tw["active"] = tw["kickoff"].notna()
     tw["headshot_url"] = None  # team defenses aren't individual players -- no photo, ever
 
-    dst_pool = tw[[
-    "player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opp",
-    "headshot_url", *RAW_DST_COLS, "points_allowed",
-    ]].rename(columns={"opp": "opponent"})
+    home = games[["season", "week", "home_team", "away_team", "kickoff"]].rename(
+        columns={"home_team": "team", "away_team": "opp"}
+    )
+    home["is_home"] = True
+    away = games[["season", "week", "away_team", "home_team", "kickoff"]].rename(
+        columns={"away_team": "team", "home_team": "opp"}
+    )
+    away["is_home"] = False
+    team_games = pd.concat([home, away], ignore_index=True)
 
     pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
     return pool
@@ -314,7 +321,7 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
         offense_pool[col] = 0.0
     offense_pool = offense_pool[
         ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent",
-         "headshot_url", *RAW_OFFENSE_COLS]
+         "is_home", "headshot_url", *RAW_OFFENSE_COLS]
     ].dropna(subset=["player_id", "name"])
 
     dst_pool = team_games.drop_duplicates(["season", "week", "team"]).copy()
@@ -330,7 +337,7 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
     dst_pool = dst_pool.rename(columns={"opp": "opponent"})
     dst_pool = dst_pool[
         ["player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opponent",
-         "headshot_url", *RAW_DST_COLS, "points_allowed"]
+         "is_home", "headshot_url", *RAW_DST_COLS, "points_allowed"]
     ]
 
     return pd.concat([offense_pool, dst_pool], ignore_index=True)
@@ -432,6 +439,7 @@ def upsert_player_week_stats(supabase, pool):
             "season": SEASON,
             "week": int(r["week"]),
             "opponent": r["opponent"] if pd.notna(r["opponent"]) else None,
+            "opponent_is_home": bool(r["is_home"]) if pd.notna(r["is_home"]) else None,
             "kickoff": kickoff.strftime("%Y-%m-%dT%H:%M:%SZ") if pd.notna(kickoff) else None,
             "game_final": bool(pd.notna(kickoff) and kickoff <= now_utc),
             "active": bool(r["active"]) if pd.notna(r["active"]) else False,
