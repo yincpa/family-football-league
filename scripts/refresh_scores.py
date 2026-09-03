@@ -502,6 +502,96 @@ def process_team(supabase, team_id, team_name, pool, prior_pool, now_utc):
     if newly_filled:
         print(f"  auto-filled {team_name}: week(s) {newly_filled}")
 
+def compute_weekly_awards(supabase, league_id, week, pool, now_utc):
+    """
+    MVP of the Week: every team that started the NFL player (any position)
+    who scored the most fantasy points that week -- more than one team can
+    win this together, since this league has no draft exclusivity and
+    multiple teams can independently roster the same player.
+
+    GM of the Week: every team with the highest raw lineup total that week
+    (before bonuses), also multi-winner on an exact tie.
+
+    Only computed once the week is "final" -- deliberately NOT the same
+    thing as player_week_stats.game_final (which really means "this game
+    has *kicked off*", not "this game has *ended*" -- see
+    upsert_player_week_stats above). Awards need the real thing, so this
+    instead waits until every game in the week is at least 4 hours past its
+    own kickoff, a rough-but-reasonable stand-in for "the games are over"
+    given nflverse's files don't carry live in-progress state. Matches the
+    same kind of approximate, kickoff-based timing already used elsewhere
+    in this job (see process_team's week-gating comment above) -- a few
+    extra minutes' delay before an award appears is fine; an award flapping
+    to a different winner mid-game would not be.
+
+    Safe to call every run for every week, including ones already finished
+    weeks ago -- upserts on (team_id, season, week, award_type), so a
+    once-final week just gets silently re-written with the same values.
+    """
+    pool_week = pool[pool["week"] == week]
+    if pool_week.empty:
+        return
+
+    kickoffs = pool_week["kickoff"].dropna()
+    if kickoffs.empty:
+        return
+    latest_kickoff = kickoffs.max()
+    if now_utc < latest_kickoff + pd.Timedelta(hours=4):
+        return  # this week's games aren't all over yet
+
+    top_score = pool_week["fantasy_points"].max()
+    if pd.isna(top_score):
+        return
+    mvp_player_ids = set(pool_week.loc[pool_week["fantasy_points"] == top_score, "player_id"])
+
+    teams = supabase.table("teams").select("id").eq("league_id", league_id).execute().data
+    team_ids = [t["id"] for t in teams]
+    if not team_ids:
+        return
+
+    lineups = (
+        supabase.table("lineups")
+        .select("team_id, player_id")
+        .eq("season", SEASON)
+        .eq("week", week)
+        .in_("team_id", team_ids)
+        .execute()
+        .data
+    )
+    points_by_player = dict(zip(pool_week["player_id"], pool_week["fantasy_points"]))
+
+    team_players = {}
+    team_totals = {}
+    for row in lineups:
+        if not row["player_id"]:
+            continue
+        team_players.setdefault(row["team_id"], set()).add(row["player_id"])
+        team_totals[row["team_id"]] = team_totals.get(row["team_id"], 0.0) + points_by_player.get(row["player_id"], 0.0)
+
+    if not team_totals:
+        return  # nobody has a lineup for this week yet -- nothing to award
+
+    award_rows = []
+
+    max_total = max(team_totals.values())
+    for team_id, total in team_totals.items():
+        if total == max_total:
+            award_rows.append({
+                "team_id": team_id, "season": SEASON, "week": week,
+                "award_type": "gm", "bonus_points": BONUS_POINTS, "mvp_player_id": None,
+            })
+
+    for team_id, player_ids in team_players.items():
+        matched = player_ids & mvp_player_ids
+        if matched:
+            award_rows.append({
+                "team_id": team_id, "season": SEASON, "week": week,
+                "award_type": "mvp", "bonus_points": BONUS_POINTS, "mvp_player_id": next(iter(matched)),
+            })
+
+    if award_rows:
+        upsert_in_batches(supabase, "weekly_awards", award_rows, on_conflict="team_id,season,week,award_type")
+        print(f"  week {week} awards: {len(award_rows)} row(s) (league {league_id})")
 
 def main():
     supabase_url = os.environ["SUPABASE_URL"]
@@ -548,6 +638,11 @@ def main():
     for team in teams:
         process_team(supabase, team["id"], team["team_name"], pool, prior_pool, now_utc)
 
+    print("Checking weekly awards...")
+    for league_id in league_ids:
+    for week in range(1, MAX_WEEK + 1):
+    compute_weekly_awards(supabase, league_id, week, pool, now_utc)
+  
     print("Done.")
 
 
