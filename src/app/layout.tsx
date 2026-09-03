@@ -7,7 +7,7 @@ import NavBar from "@/components/NavBar";
 // environments, and one less external call for a small family app).
 
 export const metadata: Metadata = {
-  title: "Yin Family Football League",
+  title: "2026 Yin Family Fantasy Football GM League",
   description: "No-draft, use-once, season-long family fantasy football.",
 };
 
