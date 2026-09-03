@@ -130,6 +130,21 @@ export interface LeagueMessage {
   author_team_logo_emoji: string | null;
   author_team_logo_image_url: string | null;
 }
+/** One weekly bonus award earned by a team -- "mvp" (started the NFL
+ * player who scored the most fantasy points that week -- multiple teams
+ * can win this together, since this league has no draft exclusivity and
+ * more than one team can independently roster the same player) or "gm"
+ * (highest raw lineup total that week, before bonuses -- also multi-winner
+ * on an exact tie). Only appears once a week is fully final -- see
+ * refresh_scores.py's compute_weekly_awards(). mvp_player_id is only set
+ * on "mvp" rows. */
+export interface WeeklyAward {
+  team_id: string;
+  week: number;
+  award_type: "mvp" | "gm";
+  bonus_points: number;
+  mvp_player_id: string | null;
+}
 
 /** A player joined with this week's stats, annotated with lock status —
  * the shape the "available players" tab and roster editor both use.
