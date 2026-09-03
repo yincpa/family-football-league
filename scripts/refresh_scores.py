@@ -33,6 +33,10 @@ from supabase import create_client
 SEASON = int(os.environ.get("REFRESH_SEASON", "2026"))
 MAX_WEEK = 18
 BASE = "https://github.com/nflverse/nflverse-data/releases/download"
+# Bonus points for each weekly award -- see compute_weekly_awards() below.
+# A plain constant so it's a one-line change to retune later once a few
+# real weeks have gone by.
+BONUS_POINTS = 25
 
 ROSTER_SLOTS = ["QB", "RB1", "RB2", "WR1", "WR2", "TE", "FLEX", "K", "DST"]
 
