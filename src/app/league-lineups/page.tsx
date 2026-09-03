@@ -1,9 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
-import { getLeagueTeams, getTeamLineup, getTeamWeeklyAwards } from "@/lib/queries";
+import { getCurrentWeek, getLeagueTeams, getTeamLineup, getTeamWeeklyAwards } from "@/lib/queries";
 import { ROSTER_SLOTS } from "@/lib/types";
 import RosterTable, { type RosterRow } from "@/components/RosterTable";
 import { TeamLogo } from "@/components/TeamLogoEditor";
 import TeamPicker from "@/components/TeamPicker";
+import WeekPicker from "@/components/WeekPicker";
 
 // TEMP: same single-league assumption as the Standings page, until real
 // league selection is built.
@@ -26,12 +27,19 @@ export default async function LeagueLineupsPage({
 }) {
   const sp = await searchParams;
   const seasonDefaulted = sp.season === undefined;
-  const weekDefaulted = sp.week === undefined;
   const season = Number(sp.season ?? new Date().getFullYear());
-  const week = Number(sp.week ?? 1);
 
   const supabase = await createClient();
   const teams = LEAGUE_ID ? await getLeagueTeams(supabase, LEAGUE_ID) : [];
+  const maxWeek = LEAGUE_ID ? await getCurrentWeek(supabase, season) : 1;
+
+  // Default to the current week (the most recent one whose games have
+  // started) when no ?week= is given; clamp anything out of range (a
+  // stale link, hand-edited URL, etc.) back to the current week instead
+  // of showing a future week that doesn't exist yet.
+  const requestedWeek = Number(sp.week ?? maxWeek);
+  const week = requestedWeek >= 1 && requestedWeek <= maxWeek ? requestedWeek : maxWeek;
+  
   // Default to the alphabetically-first team when no ?team= is given (or it
   // doesn't match a real team in this league) -- always lands on someone's
   // real lineup rather than a blank page.
