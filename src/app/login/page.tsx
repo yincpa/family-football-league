@@ -32,7 +32,11 @@ function LoginForm() {
 
   return (
     <main className="mx-auto max-w-sm p-6">
-      <h1 className="text-2xl font-semibold mb-6">Sign in</h1>
+      <div className="flex justify-center mb-4">
+        {/* eslint-disable-next-line @next/next/no-img-element -- static SVG in /public */}
+        <img src="/league-logo.svg" alt="Yin Family Fantasy Football GM League" width={120} height={120} />
+        </div>
+      <h1 className="text-2xl font-semibold mb-6 text-center">Sign in</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">
           Email
