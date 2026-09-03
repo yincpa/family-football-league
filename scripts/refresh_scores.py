@@ -634,6 +634,8 @@ def main():
     label = "preseason roster preview — 0 pts until games are played" if preseason else "live stats"
     print(f"Upserted {n_players} players, {n_stats} weekly stat rows ({label}).")
 
+    print(f"DEBUG opponent_is_home counts: {pool['is_home'].value_counts(dropna=False).to_dict()}")
+
     now_utc = pd.Timestamp.now(tz="UTC")
     leagues = supabase.table("leagues").select("id").eq("season", SEASON).execute().data
     league_ids = [row["id"] for row in leagues]
