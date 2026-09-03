@@ -135,8 +135,8 @@ export default async function LeagueLineupsPage({
       <h1 className="text-2xl font-semibold mb-1">League Lineups</h1>
       <p className="text-xs font-mono text-neutral-400 mb-2">
         Season {season} · Week {week}
-        {(seasonDefaulted || weekDefaulted) && (
-          <span className="text-amber-600"> (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)</span>
+        {seasonDefaulted && (
+          <span className="text-amber-600"> (season defaulted — add &amp;season=… to the URL to pin this)</span>
         )}
       </p>
       <p className="text-sm text-neutral-500 mb-4">
@@ -151,8 +151,9 @@ export default async function LeagueLineupsPage({
         </p>
       ) : (
         <>
-          <div className="mb-4">
+          <div className="mb-4 flex items-center gap-2">
             <TeamPicker teams={teams} selectedTeamId={teamId} season={season} week={week} />
+            <WeekPicker selectedWeek={week} maxWeek={maxWeek} teamId={teamId} season={season} />
           </div>
 
           {viewedTeam && (
