@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getStandings, getTeamLogos, getWeeklyTeamPoints } from "@/lib/queries";
+import { getLeagueWeeklyAwards, getStandings, getTeamLogos, getWeeklyTeamPoints } from "@/lib/queries";
 import { TeamLogo } from "@/components/TeamLogoEditor";
 import type { TeamLogo as TeamLogoData } from "@/lib/types";
 
@@ -9,13 +9,14 @@ const LEAGUE_ID = process.env.NEXT_PUBLIC_DEMO_LEAGUE_ID ?? "";
 
 export default async function StandingsPage() {
   const supabase = await createClient();
-  const [standings, weeklyPoints, logos] = LEAGUE_ID
+  const [standings, weeklyPoints, logos, awards] = LEAGUE_ID
     ? await Promise.all([
         getStandings(supabase, LEAGUE_ID),
         getWeeklyTeamPoints(supabase, LEAGUE_ID),
         getTeamLogos(supabase, LEAGUE_ID),
+        getLeagueWeeklyAwards(supabase, LEAGUE_ID),
       ])
-    : [[], [], []];
+    : [[], [], [], []];
 
   const logoByTeam = new Map<string, TeamLogoData>((logos as TeamLogoData[]).map((l) => [l.id, l]));
 
@@ -24,11 +25,25 @@ export default async function StandingsPage() {
   // what actually matters day to day. Older weeks trail off to the right.
   const weeks = [...new Set(weeklyPoints.map((row) => row.week))].sort((a, b) => b - a);
 
-  // team_id -> week -> points, for O(1) lookup per cell while rendering.
+  // team_id -> week -> raw lineup points, for O(1) lookup per cell while
+  // rendering. Bonus awards (below) are added on top of this, not folded
+  // into it, since they live in their own table.
   const pointsByTeam = new Map<string, Map<number, number>>();
   for (const row of weeklyPoints) {
     if (!pointsByTeam.has(row.team_id)) pointsByTeam.set(row.team_id, new Map());
     pointsByTeam.get(row.team_id)!.set(row.week, row.points);
+  }
+
+  // team_id -> week -> bonus points earned that week (MVP + GM can both
+  // land on the same team/week, so this sums rather than overwrites), plus
+  // a season-cumulative total per team for the Total column.
+  const bonusByTeamWeek = new Map<string, Map<number, number>>();
+  const bonusTotalByTeam = new Map<string, number>();
+  for (const award of awards) {
+    if (!bonusByTeamWeek.has(award.team_id)) bonusByTeamWeek.set(award.team_id, new Map());
+    const weekMap = bonusByTeamWeek.get(award.team_id)!;
+    weekMap.set(award.week, (weekMap.get(award.week) ?? 0) + award.bonus_points);
+    bonusTotalByTeam.set(award.team_id, (bonusTotalByTeam.get(award.team_id) ?? 0) + award.bonus_points);
   }
 
   // Rank, Team, and Total all stay pinned on the left (via `sticky` +
@@ -71,6 +86,8 @@ export default async function StandingsPage() {
           <tbody>
             {standings.map((row, i) => {
               const teamWeeks = pointsByTeam.get(row.team_id);
+              const teamBonusWeeks = bonusByTeamWeek.get(row.team_id);
+              const total = row.total_points + (bonusTotalByTeam.get(row.team_id) ?? 0);
               return (
                 <tr key={row.team_id} className="border-b border-neutral-100">
                   <td className="sticky left-0 z-10 bg-white py-2 pl-3 pr-2 text-neutral-500">{i + 1}</td>
@@ -86,13 +103,24 @@ export default async function StandingsPage() {
                     </span>
                   </td>
                   <td className="sticky left-[12.5rem] z-10 bg-white border-r border-neutral-200 py-2 pl-3 pr-4 text-right tabular-nums font-semibold">
-                    {row.total_points.toFixed(2)}
+                    {total.toFixed(2)}
                   </td>
                   {weeks.map((w) => {
                     const pts = teamWeeks?.get(w);
+                    const bonus = teamBonusWeeks?.get(w) ?? 0;
+                    const shown = pts !== undefined || bonus > 0 ? (pts ?? 0) + bonus : undefined;
                     return (
                       <td key={w} className="py-2 px-2 text-right tabular-nums text-neutral-600">
-                        {pts !== undefined ? pts.toFixed(2) : "—"}
+                        {shown !== undefined ? (
+                          <>
+                            {shown.toFixed(2)}
+                            {/* A small marker rather than repeating the award name here --
+                                the Lineup page's bonus table is where the "why" lives. */}
+                            {bonus > 0 && <span className="text-amber-600"> 🏆</span>}
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     );
                   })}
