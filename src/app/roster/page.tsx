@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getTeamLineup, getMyTeamId } from "@/lib/queries";
+import { getTeamLineup, getMyTeamId, getTeamWeeklyAwards } from "@/lib/queries";
 import { ROSTER_SLOTS } from "@/lib/types";
 import RosterTable, { type RosterRow } from "@/components/RosterTable";
 import { TeamLogo } from "@/components/TeamLogoEditor";
@@ -22,6 +22,11 @@ export default async function RosterPage({
   // own team automatically instead of needing it pasted into the URL.
   const teamId = sp.team ?? (await getMyTeamId(supabase)) ?? "";
   const lineup = teamId ? await getTeamLineup(supabase, teamId, season, week) : [];
+  // Weekly bonus awards (MVP of the Week / GM of the Week) -- see
+  // refresh_scores.py's compute_weekly_awards(). Usually empty; only has
+  // rows once this specific team/week combination is both final and a
+  // winner of something.
+  const awards = teamId ? await getTeamWeeklyAwards(supabase, teamId, season, week) : [];
 
   // The team being viewed isn't necessarily "my" team (?team= lets a
   // commissioner peek at someone else's), so this is looked up by teamId
@@ -39,7 +44,7 @@ export default async function RosterPage({
   };
 
   const playerIds = lineup.map((l) => l.player_id).filter(Boolean) as string[];
-  let playerDetails: Record<
+  let playerDetails: Record
     string,
     { full_name: string; fantasy_points: number; kickoff: string | null; headshot_url: string | null }
   > = {};
@@ -91,6 +96,20 @@ export default async function RosterPage({
     };
   });
 
+  // Bonus-table math. mvpAward/gmAward are each at most one row (unique
+  // team/season/week/award_type), and a team can only ever win MVP by
+  // having started that exact player in its own lineup -- so the display
+  // name is resolved straight out of initialRows, no extra query needed.
+  const lineupTotal = initialRows.reduce((sum, row) => sum + (row.points ?? 0), 0);
+  const mvpAward = awards.find((a) => a.award_type === "mvp") ?? null;
+  const gmAward = awards.find((a) => a.award_type === "gm") ?? null;
+  const bonusTotal = (mvpAward?.bonus_points ?? 0) + (gmAward?.bonus_points ?? 0);
+  const weekTotal = lineupTotal + bonusTotal;
+  const mvpPlayerName =
+    mvpAward && mvpAward.mvp_player_id
+      ? (initialRows.find((row) => row.playerId === mvpAward.mvp_player_id)?.fullName ?? null)
+      : null;
+
   return (
     <main className="mx-auto max-w-2xl p-6">
       {viewedTeam && (
@@ -129,7 +148,41 @@ export default async function RosterPage({
         </p>
       )}
 
-      {teamId && <RosterTable teamId={teamId} season={season} week={week} initialRows={initialRows} />}
+      {teamId && (
+        <>
+          <RosterTable teamId={teamId} season={season} week={week} initialRows={initialRows} />
+
+          {/* Weekly bonus awards -- see refresh_scores.py's
+              compute_weekly_awards(). Right-aligned/tabular-nums so the
+              numbers line up with RosterTable's own Pts column above. */}
+          <table className="w-full text-sm mt-4 border-t border-neutral-200 pt-2">
+            <tbody>
+              <tr className="text-neutral-500">
+                <td className="py-1">Lineup total</td>
+                <td className="py-1 text-right tabular-nums">{lineupTotal.toFixed(2)}</td>
+              </tr>
+              {mvpAward && (
+                <tr className="text-amber-600">
+                  <td className="py-1">
+                    🏆 MVP of the Week{mvpPlayerName ? ` (${mvpPlayerName})` : ""}
+                  </td>
+                  <td className="py-1 text-right tabular-nums">+{mvpAward.bonus_points.toFixed(2)}</td>
+                </tr>
+              )}
+              {gmAward && (
+                <tr className="text-amber-600">
+                  <td className="py-1">🏆 GM of the Week</td>
+                  <td className="py-1 text-right tabular-nums">+{gmAward.bonus_points.toFixed(2)}</td>
+                </tr>
+              )}
+              <tr className="font-semibold border-t border-neutral-200">
+                <td className="py-1">Week total</td>
+                <td className="py-1 text-right tabular-nums">{weekTotal.toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </>
+      )}
     </main>
   );
 }
