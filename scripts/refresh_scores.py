@@ -303,9 +303,11 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
     home = games[["season", "week", "home_team", "away_team", "kickoff"]].rename(
         columns={"home_team": "team", "away_team": "opp"}
     )
+    home["is_home"] = True
     away = games[["season", "week", "away_team", "home_team", "kickoff"]].rename(
         columns={"away_team": "team", "home_team": "opp"}
     )
+    away["is_home"] = False
     team_games = pd.concat([home, away], ignore_index=True)
 
     rw = fetch_csv(f"{BASE}/weekly_rosters/roster_weekly_{season}.csv")
