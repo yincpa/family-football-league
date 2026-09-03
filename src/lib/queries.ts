@@ -78,6 +78,56 @@ export async function getTeamLogos(supabase: SupabaseClient, leagueId: string): 
 }
 
 /**
+ * Every weekly bonus award (MVP of the Week / GM of the Week) earned by any
+ * team in a league, across the whole season -- powers the bonus-adjusted
+ * totals on Standings. Same "separate query, merge client-side" pattern as
+ * getWeeklyTeamPoints/getTeamLogos right above, since awards live in their
+ * own table rather than being folded into the `standings`/`team_week_points`
+ * views.
+ */
+export async function getLeagueWeeklyAwards(supabase: SupabaseClient, leagueId: string): Promise<WeeklyAward[]> {
+  const { data: teams, error: teamsError } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("league_id", leagueId);
+
+  if (teamsError) throw teamsError;
+  const teamIds = (teams ?? []).map((t) => t.id);
+  if (teamIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("weekly_awards")
+    .select("team_id, week, award_type, bonus_points, mvp_player_id")
+    .in("team_id", teamIds);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * One team's bonus awards for a single specific week -- powers the small
+ * bonus table at the bottom of the Lineup page. Usually empty (most
+ * team/week combinations win nothing); at most one "mvp" row and one "gm"
+ * row for any given team/week.
+ */
+export async function getTeamWeeklyAwards(
+  supabase: SupabaseClient,
+  teamId: string,
+  season: number,
+  week: number
+): Promise<WeeklyAward[]> {
+  const { data, error } = await supabase
+    .from("weekly_awards")
+    .select("team_id, week, award_type, bonus_points, mvp_player_id")
+    .eq("team_id", teamId)
+    .eq("season", season)
+    .eq("week", week);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
  * The team id owned by the currently logged-in user, or null if they're
  * not logged in or don't have a team assigned yet. Replaces the old
  * "?team=<uuid> in the URL" workaround now that real sign-in exists.
