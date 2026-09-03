@@ -263,15 +263,10 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     tw["headshot_url"] = None  # team defenses aren't individual players -- no photo, ever
 
     dst_pool = tw[[
-        "player_id", "name", "position", "team", "week",
-    "headshot_url", *RAW_DST_COLS, "points_allowed",
+        "player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opp", "is_home",
+        "headshot_url", *RAW_DST_COLS, "points_allowed",
     ]].rename(columns={"opp": "opponent"})
-    away = games[["season", "week", "away_team", "home_team", "kickoff"]].rename(
-        columns={"away_team": "team", "home_team": "opp"}
-    )
-    away["is_home"] = False
-    team_games = pd.concat([home, away], ignore_index=True)
-
+    
     pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
     return pool
 
