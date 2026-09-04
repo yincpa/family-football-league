@@ -386,11 +386,43 @@ export async function getAvailablePlayers(
     }));
 }
 
+// Every candidate in getEligibleCandidates has, by definition, a kickoff
+// that hasn't happened yet (see below) -- so this week's live fantasy_points
+// is always 0 for all of them and can never break a tie. Season-to-date
+// average (avg_points) is the only signal that actually distinguishes
+// candidates before kickoff, so that's the sort key -- with last name as a
+// human-friendly tiebreaker for the (common, e.g. Week 1 or an unproven
+// rookie) case where nobody has a season history yet either.
+//
+// "Last name" is derived from full_name rather than stored separately --
+// nflverse (and this app's schema) only ever carries one combined name
+// field. This strips a trailing suffix (Jr., Sr., II, III, IV, V) and takes
+// the final remaining word, e.g. "Joe Milton III" -> "Milton". It's a
+// heuristic, not a real name-parsing library, so a multi-word last name
+// (e.g. "Amon-Ra St. Brown") will sort on "Brown" rather than "St. Brown" --
+// good enough for scanning a swap list, not meant to be exact.
+const SUFFIX_RE = /^(jr\.?|sr\.?|ii|iii|iv|v)$/i;
+const DST_RE = /^(.*)\s+D\/ST$/i;
+function lastNameKey(fullName: string): string {
+  const trimmed = fullName.trim();
+  // Defenses are named "SF D/ST", "KC D/ST", etc. (see refresh_scores.py) --
+  // there's no real "last name" there, so key on the team code instead of
+  // landing every defense on the same "d/st" key.
+  const dst = trimmed.match(DST_RE);
+  if (dst) return dst[1].toLowerCase();
+  const parts = trimmed.split(/\s+/);
+  if (parts.length > 1 && SUFFIX_RE.test(parts[parts.length - 1])) parts.pop();
+  return (parts[parts.length - 1] ?? trimmed).toLowerCase();
+}
+
 /**
  * Candidates actually selectable for a swap into a given slot: eligible
  * players (see getAvailablePlayers) narrowed to the slot's allowed
  * positions and to games that haven't started yet (a locked player can be
- * viewed on the Players tab, but can never be swapped in).
+ * viewed on the Players tab, but can never be swapped in). Sorted by
+ * season-to-date average points (best first, no-history players last), with
+ * last name as an alphabetical tiebreaker -- see lastNameKey above for why
+ * this week's live points isn't a useful sort key here.
  */
 export async function getEligibleCandidates(
   supabase: SupabaseClient,
@@ -402,7 +434,14 @@ export async function getEligibleCandidates(
   const players = await getAvailablePlayers(supabase, teamId, season, week);
   return players
     .filter((p) => positions.includes(p.position) && !p.locked)
-    .sort((a, b) => b.fantasy_points - a.fantasy_points);
+    .sort((a, b) => {
+      if (a.avg_points == null && b.avg_points != null) return 1;
+      if (a.avg_points != null && b.avg_points == null) return -1;
+      if (a.avg_points != null && b.avg_points != null && a.avg_points !== b.avg_points) {
+        return b.avg_points - a.avg_points;
+      }
+      return lastNameKey(a.full_name).localeCompare(lastNameKey(b.full_name));
+    });
 }
 
 /**
