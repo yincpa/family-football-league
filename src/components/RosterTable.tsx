@@ -210,8 +210,17 @@ export default function RosterTable({
                               </span>
                             </span>
                             <span className="flex items-center gap-3">
-                              <span className="tabular-nums text-neutral-500">
-                                {c.fantasy_points.toFixed(2)}
+                              {/* This week's fantasy_points is always 0 here -- every candidate's
+                                  game hasn't kicked off yet (that's the swap-eligibility rule), so
+                                  season-to-date average is the only number that actually tells you
+                                  anything before you pick. Null (Week 1, or an unproven rookie) just
+                                  means no history exists yet -- shown plainly rather than as 0.00,
+                                  which would misleadingly look like a real (bad) score. */}
+                              <span
+                                className="tabular-nums text-neutral-500 text-xs w-24 text-right"
+                                title="Season-to-date average points"
+                              >
+                                {c.avg_points != null ? `${c.avg_points.toFixed(2)} avg` : "no history"}
                               </span>
                               <button
                                 onClick={() => handleSwap(slot, c)}
