@@ -1,0 +1,43 @@
+name: Backup data to git
+
+# Exports every real Supabase table to CSV and commits the result into
+# backups/<date>/ in this repo. Why: the Supabase Free plan takes NO
+# automatic backups on its own, and a free project can pause after 7 days
+# with no traffic -- see scripts/backup_data.py for the full explanation
+# and which tables matter most (lineups is the one table that can't be
+# regenerated from anywhere else).
+#
+# Runs once a day. workflow_dispatch lets you (or Claude) trigger an extra
+# backup anytime from the Actions tab -- e.g. right before running anything
+# by hand in the Supabase SQL Editor, so there's a fresh snapshot to fall
+# back to if that goes wrong.
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+# Needed so the git-auto-commit step below can push the new backup files
+# back into this repo using the workflow's own built-in token.
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r scripts/requirements.txt
+      - run: python scripts/backup_data.py
+        env:
+          SUPABASE_URL: "https://dmnqycwvdpyxaxuieumz.supabase.co"
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # Commits backups/<date>/*.csv into the repo -- a no-op (no commit, no
+      # push) if a run finds nothing changed since the last one, so running
+      # this an extra time via workflow_dispatch is always safe.
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Automated data backup"
+          file_pattern: "backups/**"
