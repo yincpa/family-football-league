@@ -10,6 +10,14 @@ import WeekPicker from "@/components/WeekPicker";
 // league selection is built.
 const LEAGUE_ID = process.env.NEXT_PUBLIC_DEMO_LEAGUE_ID ?? "";
 
+// Forces Next.js to run this Server Component fresh on every single
+// request -- never prerendered, never served from a cached snapshot on a
+// revisit. Without this, Next.js's own caching can decide a page like this
+// is eligible to be treated as "static" and reused client-side for up to
+// several minutes after a swap or a live score update -- exactly wrong for
+// a page whose whole point is showing what's true right now.
+export const dynamic = "force-dynamic";
+
 /**
  * View-only lineups for every team in the league, not just your own -- lets
  * everyone see who a teammate started and how they scored, so the league
