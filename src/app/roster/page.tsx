@@ -4,6 +4,14 @@ import { ROSTER_SLOTS } from "@/lib/types";
 import RosterTable, { type RosterRow } from "@/components/RosterTable";
 import { TeamLogo } from "@/components/TeamLogoEditor";
 
+// Forces Next.js to run this Server Component fresh on every single
+// request -- never prerendered, never served from a cached snapshot on a
+// revisit. Without this, Next.js's own caching can decide a page like this
+// is eligible to be treated as "static" and reused client-side for up to
+// several minutes after a swap or a live score update -- exactly wrong for
+// a page whose whole point is showing what's true right now.
+export const dynamic = "force-dynamic";
+
 export default async function RosterPage({
   searchParams,
 }: {
