@@ -7,6 +7,11 @@ import type { TeamLogo as TeamLogoData } from "@/lib/types";
 // from an env var. Replace with real league lookup once auth is wired up.
 const LEAGUE_ID = process.env.NEXT_PUBLIC_DEMO_LEAGUE_ID ?? "";
 
+// Same reasoning as roster/page.tsx and league-lineups/page.tsx: standings
+// change constantly as scores come in, so this page should never be
+// prerendered or served from a cached snapshot on a revisit.
+export const dynamic = "force-dynamic";
+
 export default async function StandingsPage() {
   const supabase = await createClient();
   const [standings, weeklyPoints, logos, awards] = LEAGUE_ID
