@@ -176,8 +176,7 @@ export default async function LeagueLineupsPage({
             </div>
           )}
 
-          <RosterTable teamId={teamId} season={season} week={week} initialRows={initialRows} readOnly />
-
+          <RosterTable key={`${teamId}-${season}-${week}`} teamId={teamId} season={season} week={week} initialRows={initialRows} readOnly />
           {/* Same weekly bonus table as the My Lineup page -- see
               refresh_scores.py's compute_weekly_awards(). */}
           <table className="w-full text-sm mt-4 border-t border-neutral-200 pt-2">
