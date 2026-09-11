@@ -171,7 +171,7 @@ export default async function RosterPage({
 
       {teamId && (
         <>
-          <RosterTable teamId={teamId} season={season} week={week} initialRows={initialRows} />
+          <RosterTable key={`${teamId}-${season}-${week}`} teamId={teamId} season={season} week={week} initialRows={initialRows} />
 
           {/* Weekly bonus awards -- see refresh_scores.py's
               compute_weekly_awards(). Right-aligned/tabular-nums so the
