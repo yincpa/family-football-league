@@ -267,8 +267,18 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
         "headshot_url", *RAW_DST_COLS, "points_allowed",
     ]].rename(columns={"opp": "opponent"})
     
-    pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
-    return pool
+        pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
+
+    # Every game on the week's schedule, independent of whether nflverse
+    # has published that game's box score yet. pool["kickoff"] above is
+    # NOT a substitute for this: pw/tw (the stats files merged in) only
+    # ever contain rows for games that have already been played, so
+    # mid-week -- e.g. right after Thursday Night Football but before
+    # Sunday/Monday's games -- pool would silently only cover the early
+    # game(s). compute_weekly_awards needs the real full-week schedule to
+    # know whether the week is actually over.
+    schedule = games[["season", "week", "kickoff"]].copy()
+    return pool, schedule
 
 
 # ---------------------------------------------------------------------
@@ -294,6 +304,9 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
     games = games[games["season"] == season].copy()
     games = games[games["week"] <= max_week].copy()
     games = add_kickoff_utc(games)
+    # See the matching comment in build_weekly_pool -- same reasoning,
+    # returned here too so main() can treat both pool builders the same way.
+    schedule = games[["season", "week", "kickoff"]].copy()
 
     home = games[["season", "week", "home_team", "away_team", "kickoff"]].rename(
         columns={"home_team": "team", "away_team": "opp"}
@@ -337,7 +350,7 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
          "is_home", "headshot_url", *RAW_DST_COLS, "points_allowed"]
     ]
 
-    return pd.concat([offense_pool, dst_pool], ignore_index=True)
+    return pd.concat([offense_pool, dst_pool], ignore_index=True), schedule
 
 
 # ---------------------------------------------------------------------
@@ -507,7 +520,7 @@ def process_team(supabase, team_id, team_name, pool, prior_pool, now_utc):
     if newly_filled:
         print(f"  auto-filled {team_name}: week(s) {newly_filled}")
 
-def compute_weekly_awards(supabase, league_id, week, pool, now_utc):
+def compute_weekly_awards(supabase, league_id, week, pool, schedule, now_utc):
     """
     MVP of the Week: every team that started the NFL player (any position)
     who scored the most fantasy points that week -- more than one team can
@@ -529,30 +542,50 @@ def compute_weekly_awards(supabase, league_id, week, pool, now_utc):
     extra minutes' delay before an award appears is fine; an award flapping
     to a different winner mid-game would not be.
 
+    Deliberately checks `schedule` (the full season schedule, every game
+    listed up front) for the week's last kickoff, NOT pool["kickoff"] --
+    pool only contains rows for games nflverse has already published a box
+    score for, so mid-week (e.g. right after Thursday Night Football but
+    before Sunday/Monday's games) pool would only cover the early game(s)
+    and this gate would open a full 2-3 days too soon, handing out an
+    award before the week's actual high score is even known.
+
     Safe to call every run for every week, including ones already finished
     weeks ago -- upserts on (team_id, season, week, award_type), so a
     once-final week just gets silently re-written with the same values.
+    While a week is NOT yet final, this also deletes any award rows already
+    sitting there for it -- self-healing against exactly the bug described
+    above, so a previously-premature award clears itself on the next run
+    instead of sitting there misleading everyone until the real winner is
+    decided.
     """
     pool_week = pool[pool["week"] == week]
     if pool_week.empty:
         return
 
-    kickoffs = pool_week["kickoff"].dropna()
-    if kickoffs.empty:
+    teams = supabase.table("teams").select("id").eq("league_id", league_id).execute().data
+    team_ids = [t["id"] for t in teams]
+    if not team_ids:
         return
-    latest_kickoff = kickoffs.max()
-    if now_utc < latest_kickoff + pd.Timedelta(hours=4):
+
+    week_schedule = schedule[schedule["week"] == week]
+    kickoffs = week_schedule["kickoff"].dropna()
+    is_final = not kickoffs.empty and now_utc >= kickoffs.max() + pd.Timedelta(hours=4)
+    if not is_final:
+        (
+            supabase.table("weekly_awards")
+            .delete()
+            .eq("season", SEASON)
+            .eq("week", week)
+            .in_("team_id", team_ids)
+            .execute()
+        )
         return  # this week's games aren't all over yet
 
     top_score = pool_week["fantasy_points"].max()
     if pd.isna(top_score):
         return
     mvp_player_ids = set(pool_week.loc[pool_week["fantasy_points"] == top_score, "player_id"])
-
-    teams = supabase.table("teams").select("id").eq("league_id", league_id).execute().data
-    team_ids = [t["id"] for t in teams]
-    if not team_ids:
-        return
 
     lineups = (
         supabase.table("lineups")
@@ -605,8 +638,9 @@ def main():
 
     print(f"Fetching fresh nflverse data for season {SEASON}...")
     preseason = False
+    
     try:
-        pool = build_weekly_pool(SEASON, max_week=MAX_WEEK)
+        pool, schedule = build_weekly_pool(SEASON, max_week=MAX_WEEK)
     except Exception as e:
         # Most likely cause: nflverse hasn't published this season's real
         # stats file yet because Week 1 hasn't been played. Before giving
@@ -616,7 +650,7 @@ def main():
         # failing the workflow run.
         print(f"Season {SEASON} stats aren't published yet ({e}). Trying the preseason roster preview...")
         try:
-            pool = build_preseason_pool(SEASON, max_week=MAX_WEEK)
+            pool, schedule = build_preseason_pool(SEASON, max_week=MAX_WEEK)
         except Exception as e2:
             print(f"Preseason roster data isn't available yet either ({e2}). Nothing to do.")
             return
@@ -624,7 +658,7 @@ def main():
             print("Preseason roster preview came back empty. Nothing to do.")
             return
         preseason = True
-    prior_pool = build_weekly_pool(SEASON - 1, max_week=MAX_WEEK)
+    prior_pool, _ = build_weekly_pool(SEASON - 1, max_week=MAX_WEEK)
 
     n_players = upsert_nfl_players(supabase, pool)
     n_stats = upsert_player_week_stats(supabase, pool)
@@ -648,7 +682,7 @@ def main():
     print("Checking weekly awards...")
     for league_id in league_ids:
         for week in range(1, MAX_WEEK + 1):
-            compute_weekly_awards(supabase, league_id, week, pool, now_utc)
+            compute_weekly_awards(supabase, league_id, week, pool, schedule, now_utc)
 
         print("Done.")
 
