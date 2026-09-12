@@ -267,7 +267,7 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
         "headshot_url", *RAW_DST_COLS, "points_allowed",
     ]].rename(columns={"opp": "opponent"})
     
-        pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
+    pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
 
     # Every game on the week's schedule, independent of whether nflverse
     # has published that game's box score yet. pool["kickoff"] above is
