@@ -147,9 +147,15 @@ export default async function LeagueLineupsPage({
           <span className="text-amber-600"> (season defaulted — add &amp;season=… to the URL to pin this)</span>
         )}
       </p>
-      <p className="text-sm text-neutral-500 mb-4">
+      <p className="text-sm text-neutral-500 mb-2">
         Everyone&apos;s lineups, view-only — pick a team below to see who they started and how they
         scored.
+      </p>
+      <p className="text-xs text-neutral-400 mb-4">
+        Points aren&apos;t live during a game — our stats source only publishes updates after each
+        game window wraps up (roughly 5pm ET for early games, 8pm ET for the late afternoon
+        window, and after Sunday/Monday night football), not continuously while a game is being
+        played.
       </p>
 
       {!LEAGUE_ID || teams.length === 0 ? (
