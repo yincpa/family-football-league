@@ -26,13 +26,17 @@ Optional:
 """
 import os
 import sys
+import time
 
+import httpx
 import pandas as pd
+from postgrest.exceptions import APIError
 from supabase import create_client
 
 SEASON = int(os.environ.get("REFRESH_SEASON", "2026"))
 MAX_WEEK = 18
 BASE = "https://github.com/nflverse/nflverse-data/releases/download"
+
 # Bonus points for each weekly award -- see compute_weekly_awards() below.
 # A plain constant so it's a one-line change to retune later once a few
 # real weeks have gone by.
@@ -205,7 +209,7 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     games = add_kickoff_utc(games)
 
     home = games[["season", "week", "home_team", "away_team", "kickoff", "game_id", "home_score", "away_score"]].rename(
-     columns={"home_team": "team", "away_team": "opp"}
+        columns={"home_team": "team", "away_team": "opp"}
     )
     home["points_allowed"] = games["away_score"]
     home["is_home"] = True
@@ -236,7 +240,9 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     # freshly computed version (same values, just avoids ambiguous columns).
     pw = pw.loc[:, ~pw.columns.duplicated(keep="last")]
 
-    rw_slim = rw[["season", "week", "gsis_id", "team", "status", "headshot_url"]].rename(columns={"gsis_id": "player_id"})
+    rw_slim = rw[["season", "week", "gsis_id", "team", "status", "headshot_url"]].rename(
+        columns={"gsis_id": "player_id"}
+    )
     pw = pw.merge(rw_slim, on=["season", "week", "player_id"], suffixes=("", "_roster"), how="left")
     pw["team"] = pw["team"].where(pw["team"].notna(), pw["team_roster"])
     pw["active"] = pw["status"] == "ACT"
@@ -266,7 +272,7 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
         "player_id", "name", "position", "team", "week", "fantasy_points", "kickoff", "active", "opp", "is_home",
         "headshot_url", *RAW_DST_COLS, "points_allowed",
     ]].rename(columns={"opp": "opponent"})
-    
+
     pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
 
     # Every game on the week's schedule, independent of whether nflverse
@@ -410,11 +416,46 @@ def auto_fill_lineup(used_players, pool_week, rank_df):
 
 
 # ---------------------------------------------------------------------
-# Supabase writes
+# Supabase reads/writes
 # ---------------------------------------------------------------------
+def run(query, retries=4, base_delay=5):
+    """
+    Runs a Supabase/PostgREST query's .execute(), retrying a few times
+    (5s, 10s, 20s, 40s) on a TRANSIENT failure -- a 502/503/504 from
+    Supabase's own gateway, or a network-level connect/read timeout --
+    rather than letting one blip fail the whole job. This is what a
+    "Gateway Timeout" during a live run almost always is: the gateway
+    (not the database itself) briefly choking, often right after the
+    project has sat idle a while, e.g. overnight. A real problem (a bad
+    query, an RLS rejection, a bad key) comes back as a 4xx and is raised
+    immediately, same as before -- this only ever masks the kind of
+    failure that clears up if you just try again a few seconds later.
+    """
+    last_error = None
+    for attempt in range(retries):
+        try:
+            return query.execute()
+        except APIError as e:
+            try:
+                status = int(e.code) if e.code is not None else None
+            except (TypeError, ValueError):
+                status = None
+            transient = status in (502, 503, 504) or "Gateway Timeout" in str(e) or "Service Unavailable" in str(e)
+            if not transient or attempt == retries - 1:
+                raise
+            last_error = e
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            if attempt == retries - 1:
+                raise
+            last_error = e
+        delay = base_delay * (2 ** attempt)
+        print(f"  transient Supabase error ({last_error}), retrying in {delay}s (attempt {attempt + 1}/{retries})...")
+        time.sleep(delay)
+
+
 def upsert_in_batches(supabase, table, rows, on_conflict, batch=500):
     for i in range(0, len(rows), batch):
-        supabase.table(table).upsert(rows[i:i + batch], on_conflict=on_conflict).execute()
+        run(supabase.table(table).upsert(rows[i:i + batch], on_conflict=on_conflict))
 
 
 def upsert_nfl_players(supabase, pool):
@@ -467,14 +508,12 @@ def upsert_player_week_stats(supabase, pool):
 
 
 def process_team(supabase, team_id, team_name, pool, prior_pool, now_utc):
-    existing = (
+    existing = run(
         supabase.table("lineups")
         .select("week, player_id")
         .eq("team_id", team_id)
         .eq("season", SEASON)
-        .execute()
-        .data
-    )
+    ).data
     filled_weeks = {row["week"] for row in existing}
     used_players = {row["player_id"] for row in existing if row["player_id"]}
 
@@ -514,11 +553,12 @@ def process_team(supabase, team_id, team_name, pool, prior_pool, now_utc):
             })
             used_players.add(player_id)
         if rows:
-            supabase.table("lineups").insert(rows).execute()
+            run(supabase.table("lineups").insert(rows))
             newly_filled.append(week)
 
     if newly_filled:
         print(f"  auto-filled {team_name}: week(s) {newly_filled}")
+
 
 def compute_weekly_awards(supabase, league_id, week, pool, schedule, now_utc):
     """
@@ -563,7 +603,7 @@ def compute_weekly_awards(supabase, league_id, week, pool, schedule, now_utc):
     if pool_week.empty:
         return
 
-    teams = supabase.table("teams").select("id").eq("league_id", league_id).execute().data
+    teams = run(supabase.table("teams").select("id").eq("league_id", league_id)).data
     team_ids = [t["id"] for t in teams]
     if not team_ids:
         return
@@ -572,13 +612,12 @@ def compute_weekly_awards(supabase, league_id, week, pool, schedule, now_utc):
     kickoffs = week_schedule["kickoff"].dropna()
     is_final = not kickoffs.empty and now_utc >= kickoffs.max() + pd.Timedelta(hours=4)
     if not is_final:
-        (
+        run(
             supabase.table("weekly_awards")
             .delete()
             .eq("season", SEASON)
             .eq("week", week)
             .in_("team_id", team_ids)
-            .execute()
         )
         return  # this week's games aren't all over yet
 
@@ -587,15 +626,13 @@ def compute_weekly_awards(supabase, league_id, week, pool, schedule, now_utc):
         return
     mvp_player_ids = set(pool_week.loc[pool_week["fantasy_points"] == top_score, "player_id"])
 
-    lineups = (
+    lineups = run(
         supabase.table("lineups")
         .select("team_id, player_id")
         .eq("season", SEASON)
         .eq("week", week)
         .in_("team_id", team_ids)
-        .execute()
-        .data
-    )
+    ).data
     points_by_player = dict(zip(pool_week["player_id"], pool_week["fantasy_points"]))
 
     team_players = {}
@@ -631,6 +668,7 @@ def compute_weekly_awards(supabase, league_id, week, pool, schedule, now_utc):
         upsert_in_batches(supabase, "weekly_awards", award_rows, on_conflict="team_id,season,week,award_type")
         print(f"  week {week} awards: {len(award_rows)} row(s) (league {league_id})")
 
+
 def main():
     supabase_url = os.environ["SUPABASE_URL"]
     supabase_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -638,7 +676,6 @@ def main():
 
     print(f"Fetching fresh nflverse data for season {SEASON}...")
     preseason = False
-    
     try:
         pool, schedule = build_weekly_pool(SEASON, max_week=MAX_WEEK)
     except Exception as e:
@@ -665,16 +702,14 @@ def main():
     label = "preseason roster preview — 0 pts until games are played" if preseason else "live stats"
     print(f"Upserted {n_players} players, {n_stats} weekly stat rows ({label}).")
 
-    print(f"DEBUG opponent_is_home counts: {pool['is_home'].value_counts(dropna=False).to_dict()}")
-
     now_utc = pd.Timestamp.now(tz="UTC")
-    leagues = supabase.table("leagues").select("id").eq("season", SEASON).execute().data
+    leagues = run(supabase.table("leagues").select("id").eq("season", SEASON)).data
     league_ids = [row["id"] for row in leagues]
     if not league_ids:
         print(f"No leagues found for season {SEASON} — nothing to auto-fill.")
         return
 
-    teams = supabase.table("teams").select("id, team_name").in_("league_id", league_ids).execute().data
+    teams = run(supabase.table("teams").select("id, team_name").in_("league_id", league_ids)).data
     print(f"Checking auto-fill for {len(teams)} team(s)...")
     for team in teams:
         process_team(supabase, team["id"], team["team_name"], pool, prior_pool, now_utc)
@@ -684,7 +719,8 @@ def main():
         for week in range(1, MAX_WEEK + 1):
             compute_weekly_awards(supabase, league_id, week, pool, schedule, now_utc)
 
-        print("Done.")
+    print("Done.")
+
 
 if __name__ == "__main__":
     sys.exit(main())
