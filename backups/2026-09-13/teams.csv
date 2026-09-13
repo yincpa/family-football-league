@@ -1,0 +1,9 @@
+id,league_id,owner_user_id,team_name,created_at,logo_emoji,logo_image_url
+bfa001cb-5cbb-4787-8884-0cc6bca144eb,cffbd011-a982-42f0-bdfe-981bbff3df30,c3b307e5-e006-4149-bb3f-d4d2f6c62721,Caden Yin,2026-09-04T16:03:18.680647+00:00,,
+8c5a0f50-32db-4080-a9ac-a2a588fe324f,cffbd011-a982-42f0-bdfe-981bbff3df30,a7a859ce-1551-41fc-a5fc-9e2db5f00b9c,Big waft,2026-09-06T21:30:50.14628+00:00,,
+176fe6d7-89e0-49f7-957a-43a9dbb5655f,cffbd011-a982-42f0-bdfe-981bbff3df30,b8401600-ce4b-4c0c-be5f-fa52d57b8153,Jed’s Dead,2026-09-06T21:30:59.106382+00:00,,
+6fbf760b-72a3-48d3-8418-48869766c773,cffbd011-a982-42f0-bdfe-981bbff3df30,dcb397af-8c70-48d1-8eee-a99a0cca4379,Ohio Nomads,2026-09-06T21:30:55.834512+00:00,👮🏻‍♂️,
+49d7b057-75b1-4c0a-9b3b-c7085fe6cc69,cffbd011-a982-42f0-bdfe-981bbff3df30,2062681f-87d3-413b-bba1-568578c4fc35,Say Hello to my Kittle Friend,2026-09-04T16:46:53.812669+00:00,,https://dmnqycwvdpyxaxuieumz.supabase.co/storage/v1/object/public/team-logos/49d7b057-75b1-4c0a-9b3b-c7085fe6cc69/logo?v=1788752225197
+b03523cd-bbb2-4929-a3b3-22013ee9a0d8,cffbd011-a982-42f0-bdfe-981bbff3df30,82734c82-0519-4f11-80c3-756e16d0cf02,musashi’s cats,2026-09-07T04:30:23.775832+00:00,,
+691d27dd-6907-46c5-a0af-fafa2dfe95c2,cffbd011-a982-42f0-bdfe-981bbff3df30,db48f5e0-a85c-4cea-90ed-6e9ce91f96ec,TheCommish,2026-08-25T02:03:26.769522+00:00,,https://dmnqycwvdpyxaxuieumz.supabase.co/storage/v1/object/public/team-logos/691d27dd-6907-46c5-a0af-fafa2dfe95c2/logo?v=1788802015626
+cfb3dadf-306d-44de-9877-456c8d9aa85b,cffbd011-a982-42f0-bdfe-981bbff3df30,001637f0-a6ef-4268-a0b1-9fd86e62631b,The Gregs,2026-09-07T04:30:14.477949+00:00,🐀,
