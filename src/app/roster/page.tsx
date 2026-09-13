@@ -153,10 +153,17 @@ export default async function RosterPage({
           <span className="text-amber-600"> (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)</span>
         )}
       </p>
-      <p className="text-sm text-neutral-500 mb-6">
+      <p className="text-sm text-neutral-500 mb-2">
         Click &quot;Swap&quot; on any editable slot to change it — a slot locks once that player&apos;s
         game has started, and you can only swap in a player who hasn&apos;t been used before and whose
         own game hasn&apos;t started.
+      </p>
+      <p className="text-xs text-neutral-400 mb-6">
+        Points aren&apos;t live during a game — our stats source only publishes updates after each
+        game window wraps up (roughly 5pm ET for early games, 8pm ET for the late afternoon
+        window, and after Sunday/Monday night football), not continuously while a game is being
+        played. A slot showing &quot;locked&quot; at 0.00 usually just means that game is still in
+        progress.
       </p>
 
       {!teamId && (
