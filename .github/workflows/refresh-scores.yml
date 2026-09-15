@@ -22,6 +22,7 @@ on:
     # Monday Night Football window
     - cron: "*/30 23 * * 1"
     - cron: "*/30 0-4 * * 2"
+    - cron: "0 13 * * *"
   workflow_dispatch:
     inputs:
       season:
