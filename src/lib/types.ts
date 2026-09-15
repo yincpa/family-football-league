@@ -2,9 +2,20 @@
 // database — if the schema changes, update here too.
 
 export type Position = "QB" | "RB" | "WR" | "TE" | "K" | "DST";
-export type Slot = "QB" | "RB1" | "RB2" | "WR1" | "WR2" | "TE" | "FLEX" | "K" | "DST";
+export type Slot =
+  "QB" | "RB1" | "RB2" | "WR1" | "WR2" | "TE" | "FLEX" | "K" | "DST";
 
-export const ROSTER_SLOTS: Slot[] = ["QB", "RB1", "RB2", "WR1", "WR2", "TE", "FLEX", "K", "DST"];
+export const ROSTER_SLOTS: Slot[] = [
+  "QB",
+  "RB1",
+  "RB2",
+  "WR1",
+  "WR2",
+  "TE",
+  "FLEX",
+  "K",
+  "DST",
+];
 
 export const SLOT_POSITIONS: Record<Slot, Position[]> = {
   QB: ["QB"],
@@ -131,6 +142,7 @@ export interface LeagueMessage {
   author_team_logo_emoji: string | null;
   author_team_logo_image_url: string | null;
 }
+
 /** One weekly bonus award earned by a team -- "mvp" (started the NFL
  * player who scored the most fantasy points that week -- multiple teams
  * can win this together, since this league has no draft exclusivity and
@@ -180,6 +192,42 @@ export interface AvailablePlayer extends NflPlayer {
   def_fumble_rec: number | null;
   def_tds: number | null;
   points_allowed: number | null;
+  // Cumulative totals over prior weeks (only games nflverse has marked
+  // final), null for week 1 or if this player has no finished games yet
+  // (e.g. just came off a bye). Field names deliberately match the raw
+  // per-week columns above one-for-one, so the Players tab can point at
+  // either set with the same column definitions -- see SeasonToDateStats.
+  season: SeasonToDateStats | null;
+}
+
+/** This player's season so far, summed over every prior week nflverse has
+ * marked final -- the "Season" half of the Players tab's This Week/Season
+ * toggle. Field names mirror AvailablePlayer's per-week raw stat columns
+ * one-for-one (rush_yards, rec_tds, etc.) specifically so the UI can reuse
+ * the same column definitions against either object without a translation
+ * table. */
+export interface SeasonToDateStats {
+  games: number; // finished games counted toward these totals
+  total_points: number;
+  avg_points: number; // total_points / games
+  pass_yards: number;
+  pass_tds: number;
+  pass_ints: number;
+  rush_yards: number;
+  rush_tds: number;
+  receptions: number;
+  rec_yards: number;
+  rec_tds: number;
+  fumbles_lost: number;
+  fg_made: number;
+  fg_att: number;
+  pat_made: number;
+  pat_att: number;
+  def_sacks: number;
+  def_ints: number;
+  def_fumble_rec: number;
+  def_tds: number;
+  points_allowed: number;
 }
 
 /** A team in a league, for the League Lineups team-picker dropdown -- just
