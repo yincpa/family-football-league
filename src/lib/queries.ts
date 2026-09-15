@@ -688,3 +688,37 @@ export async function postLeagueMessage(supabase: SupabaseClient, leagueId: stri
     .insert({ league_id: leagueId, user_id: user.id, body });
   if (error) throw error;
 }
+
+/**
+ * The highest week this team already has ANY lineup row for -- i.e. the
+ * latest week refresh_scores.py's auto-fill has opened up. process_team
+ * only creates week N+1's lineup once week N's last game has kicked off
+ * (see the comment there), so this is exactly "the week you should be
+ * setting right now": once the current week's games are underway/over,
+ * there's nothing actionable left there -- the new week that just opened
+ * is what needs attention. This is what My Lineup defaults to when no
+ * ?week= is given, deliberately different from getCurrentWeek() above
+ * (which League Lineups uses) -- that one answers "what week are we
+ * watching," which lags a week behind this one on purpose: it only
+ * advances once THAT week's games have started, not once next week's
+ * lineup is merely available to set.
+ *
+ * Falls back to 1 if the team has no lineup rows at all yet (a
+ * brand-new team, or auto-fill hasn't run since it was created).
+ */
+export async function getLatestFilledWeek(
+  supabase: SupabaseClient,
+  teamId: string,
+  season: number
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("lineups")
+    .select("week")
+    .eq("team_id", teamId)
+    .eq("season", season)
+    .order("week", { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+  return data && data.length > 0 ? data[0].week : 1;
+}
