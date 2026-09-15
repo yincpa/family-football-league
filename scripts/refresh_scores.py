@@ -275,6 +275,28 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
 
     pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
 
+    # A week that hasn't been played yet has NO rows here at all, not just
+    # missing points -- pw/tw (the stats files merged in above) only ever
+    # contain rows for games that have already happened, so next week (or
+    # any future week) is completely absent from `pool` right up until its
+    # games are actually played. That's fatal for process_team's auto-fill:
+    # pool[pool["week"] == next_week] comes back empty, so `if
+    # pool_week.empty: continue` skips it forever, and the upcoming week's
+    # lineup never opens up in advance the way it's supposed to.
+    #
+    # Fix: layer the same roster+schedule "preview" pool used before the
+    # season started (build_preseason_pool -- real players/positions/teams/
+    # kickoffs from the current roster and schedule, fantasy_points fixed
+    # at 0 since nothing's happened yet) underneath the real one for every
+    # week in range, then keep the real row wherever one exists and fall
+    # back to the preview row otherwise. This is exactly the preseason
+    # mechanism, just applied week-by-week for the rest of the season
+    # instead of only for the one-time gap before Week 1.
+    shell_pool, _ = build_preseason_pool(season, max_week)
+    pool = pd.concat([pool, shell_pool], ignore_index=True).drop_duplicates(
+        subset=["player_id", "week"], keep="first"
+    )
+
     # Every game on the week's schedule, independent of whether nflverse
     # has published that game's box score yet. pool["kickoff"] above is
     # NOT a substitute for this: pw/tw (the stats files merged in) only
