@@ -1,5 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentWeek, getLeagueTeams, getTeamLineup, getTeamWeeklyAwards } from "@/lib/queries";
+import {
+  getLatestFilledWeek,
+  getLeagueTeams,
+  getTeamLineup,
+  getTeamWeeklyAwards,
+} from "@/lib/queries";
 import { ROSTER_SLOTS } from "@/lib/types";
 import RosterTable, { type RosterRow } from "@/components/RosterTable";
 import { TeamLogo } from "@/components/TeamLogoEditor";
@@ -35,27 +40,39 @@ export default async function LeagueLineupsPage({
 }) {
   const sp = await searchParams;
   const seasonDefaulted = sp.season === undefined;
+  const weekDefaulted = sp.week === undefined;
   const season = Number(sp.season ?? new Date().getFullYear());
 
   const supabase = await createClient();
   const teams = LEAGUE_ID ? await getLeagueTeams(supabase, LEAGUE_ID) : [];
-  const maxWeek = LEAGUE_ID ? await getCurrentWeek(supabase, season) : 1;
 
-  // Default to the current week (the most recent one whose games have
-  // started) when no ?week= is given; clamp anything out of range (a
-  // stale link, hand-edited URL, etc.) back to the current week instead
-  // of showing a future week that doesn't exist yet.
-  const requestedWeek = Number(sp.week ?? maxWeek);
-  const week = requestedWeek >= 1 && requestedWeek <= maxWeek ? requestedWeek : maxWeek;
-  
   // Default to the alphabetically-first team when no ?team= is given (or it
   // doesn't match a real team in this league) -- always lands on someone's
   // real lineup rather than a blank page.
-  const teamId = (sp.team && teams.some((t) => t.id === sp.team) ? sp.team : teams[0]?.id) ?? "";
+  const teamId =
+    (sp.team && teams.some((t) => t.id === sp.team) ? sp.team : teams[0]?.id) ??
+    "";
   const viewedTeam = teams.find((t) => t.id === teamId) ?? null;
 
-  const lineup = teamId ? await getTeamLineup(supabase, teamId, season, week) : [];
-  const awards = teamId ? await getTeamWeeklyAwards(supabase, teamId, season, week) : [];
+  // Same "latest week auto-fill has opened up" semantics as My Lineup (see
+  // getLatestFilledWeek's own comment) -- every team gets auto-filled
+  // together by refresh_scores.py, so the viewed team's latest filled week
+  // is the same week everyone else's lineup is ready to be looked at too.
+  // Clamp anything out of range (a stale link, hand-edited URL, etc.) back
+  // to that week instead of showing one that doesn't exist yet.
+  const maxWeek = teamId
+    ? await getLatestFilledWeek(supabase, teamId, season)
+    : 1;
+  const requestedWeek = Number(sp.week ?? maxWeek);
+  const week =
+    requestedWeek >= 1 && requestedWeek <= maxWeek ? requestedWeek : maxWeek;
+
+  const lineup = teamId
+    ? await getTeamLineup(supabase, teamId, season, week)
+    : [];
+  const awards = teamId
+    ? await getTeamWeeklyAwards(supabase, teamId, season, week)
+    : [];
 
   type StatsRow = {
     player_id: string;
@@ -63,7 +80,10 @@ export default async function LeagueLineupsPage({
     kickoff: string | null;
     opponent: string | null;
     opponent_is_home: boolean | null;
-    nfl_players: { full_name: string; headshot_url: string | null } | { full_name: string; headshot_url: string | null }[] | null;
+    nfl_players:
+      | { full_name: string; headshot_url: string | null }
+      | { full_name: string; headshot_url: string | null }[]
+      | null;
   };
 
   const playerIds = lineup.map((l) => l.player_id).filter(Boolean) as string[];
@@ -82,14 +102,18 @@ export default async function LeagueLineupsPage({
   if (playerIds.length > 0) {
     const { data } = await supabase
       .from("player_week_stats")
-      .select("player_id, fantasy_points, kickoff, opponent, opponent_is_home, nfl_players(full_name, headshot_url)")
+      .select(
+        "player_id, fantasy_points, kickoff, opponent, opponent_is_home, nfl_players(full_name, headshot_url)",
+      )
       .in("player_id", playerIds)
       .eq("season", season)
       .eq("week", week);
 
     playerDetails = Object.fromEntries(
       ((data as StatsRow[] | null) ?? []).map((row) => {
-        const joined = Array.isArray(row.nfl_players) ? row.nfl_players[0] : row.nfl_players;
+        const joined = Array.isArray(row.nfl_players)
+          ? row.nfl_players[0]
+          : row.nfl_players;
         return [
           row.player_id,
           {
@@ -101,7 +125,7 @@ export default async function LeagueLineupsPage({
             headshot_url: joined?.headshot_url ?? null,
           },
         ];
-      })
+      }),
     );
   }
 
@@ -113,8 +137,12 @@ export default async function LeagueLineupsPage({
 
   const initialRows: RosterRow[] = ROSTER_SLOTS.map((slot) => {
     const entry = bySlot[slot];
-    const details = entry?.player_id ? playerDetails[entry.player_id] : undefined;
-    const locked = details?.kickoff ? new Date(details.kickoff).getTime() <= now : false;
+    const details = entry?.player_id
+      ? playerDetails[entry.player_id]
+      : undefined;
+    const locked = details?.kickoff
+      ? new Date(details.kickoff).getTime() <= now
+      : false;
     return {
       slot,
       playerId: entry?.player_id ?? null,
@@ -128,14 +156,19 @@ export default async function LeagueLineupsPage({
     };
   });
 
-  const lineupTotal = initialRows.reduce((sum, row) => sum + (row.points ?? 0), 0);
+  const lineupTotal = initialRows.reduce(
+    (sum, row) => sum + (row.points ?? 0),
+    0,
+  );
   const mvpAward = awards.find((a) => a.award_type === "mvp") ?? null;
   const gmAward = awards.find((a) => a.award_type === "gm") ?? null;
-  const bonusTotal = (mvpAward?.bonus_points ?? 0) + (gmAward?.bonus_points ?? 0);
+  const bonusTotal =
+    (mvpAward?.bonus_points ?? 0) + (gmAward?.bonus_points ?? 0);
   const weekTotal = lineupTotal + bonusTotal;
   const mvpPlayerName =
     mvpAward && mvpAward.mvp_player_id
-      ? (initialRows.find((row) => row.playerId === mvpAward.mvp_player_id)?.fullName ?? null)
+      ? (initialRows.find((row) => row.playerId === mvpAward.mvp_player_id)
+          ?.fullName ?? null)
       : null;
 
   return (
@@ -143,31 +176,45 @@ export default async function LeagueLineupsPage({
       <h1 className="text-2xl font-semibold mb-1">League Lineups</h1>
       <p className="text-xs font-mono text-neutral-400 mb-2">
         Season {season} · Week {week}
-        {seasonDefaulted && (
-          <span className="text-amber-600"> (season defaulted — add &amp;season=… to the URL to pin this)</span>
+        {(seasonDefaulted || weekDefaulted) && (
+          <span className="text-amber-600">
+            {" "}
+            (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)
+          </span>
         )}
       </p>
       <p className="text-sm text-neutral-500 mb-2">
-        Everyone&apos;s lineups, view-only — pick a team below to see who they started and how they
-        scored.
+        Everyone&apos;s lineups, view-only — pick a team below to see who they
+        started and how they scored.
       </p>
       <p className="text-xs text-neutral-400 mb-4">
-        Points aren&apos;t live during a game — our stats source only publishes updates after each
-        game window wraps up (roughly 5pm ET for early games, 8pm ET for the late afternoon
-        window, and after Sunday/Monday night football), not continuously while a game is being
-        played.
+        Points aren&apos;t live during a game — our stats source only publishes
+        updates after each game window wraps up (roughly 5pm ET for early games,
+        8pm ET for the late afternoon window, and after Sunday/Monday night
+        football), not continuously while a game is being played.
       </p>
 
       {!LEAGUE_ID || teams.length === 0 ? (
         <p className="text-sm text-amber-600 border border-amber-300 rounded-md p-3 mb-4">
-          No league connected yet — this page will populate once the Supabase project and teams
-          exist.
+          No league connected yet — this page will populate once the Supabase
+          project and teams exist.
         </p>
       ) : (
         <>
           <div className="mb-4 flex items-center gap-2">
-            <TeamPicker teams={teams} selectedTeamId={teamId} season={season} week={week} />
-            <WeekPicker selectedWeek={week} maxWeek={maxWeek} teamId={teamId} season={season} basePath="/league-lineups" />
+            <TeamPicker
+              teams={teams}
+              selectedTeamId={teamId}
+              season={season}
+              week={week}
+            />
+            <WeekPicker
+              selectedWeek={week}
+              maxWeek={maxWeek}
+              teamId={teamId}
+              season={season}
+              basePath="/league-lineups"
+            />
           </div>
 
           {viewedTeam && (
@@ -178,36 +225,55 @@ export default async function LeagueLineupsPage({
                 teamName={viewedTeam.team_name}
                 size={28}
               />
-              <span className="text-sm font-medium text-neutral-600">{viewedTeam.team_name}</span>
+              <span className="text-sm font-medium text-neutral-600">
+                {viewedTeam.team_name}
+              </span>
             </div>
           )}
 
-          <RosterTable key={`${teamId}-${season}-${week}`} teamId={teamId} season={season} week={week} initialRows={initialRows} readOnly />
+          <RosterTable
+            key={`${teamId}-${season}-${week}`}
+            teamId={teamId}
+            season={season}
+            week={week}
+            initialRows={initialRows}
+            readOnly
+          />
+
           {/* Same weekly bonus table as the My Lineup page -- see
               refresh_scores.py's compute_weekly_awards(). */}
           <table className="w-full text-sm mt-4 border-t border-neutral-200 pt-2">
             <tbody>
               <tr className="text-neutral-500">
                 <td className="py-1">Lineup total</td>
-                <td className="py-1 text-right tabular-nums">{lineupTotal.toFixed(2)}</td>
+                <td className="py-1 text-right tabular-nums">
+                  {lineupTotal.toFixed(2)}
+                </td>
               </tr>
               {mvpAward && (
                 <tr className="text-amber-600">
                   <td className="py-1">
-                    🏆 MVP of the Week{mvpPlayerName ? ` (${mvpPlayerName})` : ""}
+                    🏆 MVP of the Week
+                    {mvpPlayerName ? ` (${mvpPlayerName})` : ""}
                   </td>
-                  <td className="py-1 text-right tabular-nums">+{mvpAward.bonus_points.toFixed(2)}</td>
+                  <td className="py-1 text-right tabular-nums">
+                    +{mvpAward.bonus_points.toFixed(2)}
+                  </td>
                 </tr>
               )}
               {gmAward && (
                 <tr className="text-amber-600">
                   <td className="py-1">🏆 GM of the Week</td>
-                  <td className="py-1 text-right tabular-nums">+{gmAward.bonus_points.toFixed(2)}</td>
+                  <td className="py-1 text-right tabular-nums">
+                    +{gmAward.bonus_points.toFixed(2)}
+                  </td>
                 </tr>
               )}
               <tr className="font-semibold border-t border-neutral-200">
                 <td className="py-1">Week total</td>
-                <td className="py-1 text-right tabular-nums">{weekTotal.toFixed(2)}</td>
+                <td className="py-1 text-right tabular-nums">
+                  {weekTotal.toFixed(2)}
+                </td>
               </tr>
             </tbody>
           </table>
