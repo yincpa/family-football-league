@@ -167,7 +167,7 @@ export default async function LeagueLineupsPage({
         <>
           <div className="mb-4 flex items-center gap-2">
             <TeamPicker teams={teams} selectedTeamId={teamId} season={season} week={week} />
-            <WeekPicker selectedWeek={week} maxWeek={maxWeek} teamId={teamId} season={season} />
+            <WeekPicker selectedWeek={week} maxWeek={maxWeek} teamId={teamId} season={season} basePath="/league-lineups" />
           </div>
 
           {viewedTeam && (
