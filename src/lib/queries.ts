@@ -8,6 +8,7 @@ import type {
   Lineup,
   Position,
   Profile,
+  SeasonToDateStats,
   StandingsRow,
   TeamLogo,
   WeeklyAward,
@@ -16,7 +17,7 @@ import type {
 
 export async function getStandings(
   supabase: SupabaseClient,
-  leagueId: string
+  leagueId: string,
 ): Promise<StandingsRow[]> {
   const { data, error } = await supabase
     .from("standings")
@@ -42,7 +43,7 @@ export async function getStandings(
  */
 export async function getWeeklyTeamPoints(
   supabase: SupabaseClient,
-  leagueId: string
+  leagueId: string,
 ): Promise<WeeklyTeamPoints[]> {
   const { data: teams, error: teamsError } = await supabase
     .from("teams")
@@ -62,14 +63,16 @@ export async function getWeeklyTeamPoints(
   return data ?? [];
 }
 
-
 /**
  * Every team's logo in a league (id + emoji/image, whichever is set) --
  * powers the small logo shown next to each team name on Standings. Same
  * "separate query, merge client-side" pattern as getWeeklyTeamPoints right
  * above, for the same reason (no single view has both).
  */
-export async function getTeamLogos(supabase: SupabaseClient, leagueId: string): Promise<TeamLogo[]> {
+export async function getTeamLogos(
+  supabase: SupabaseClient,
+  leagueId: string,
+): Promise<TeamLogo[]> {
   const { data, error } = await supabase
     .from("teams")
     .select("id, logo_emoji, logo_image_url")
@@ -87,7 +90,10 @@ export async function getTeamLogos(supabase: SupabaseClient, leagueId: string): 
  * own table rather than being folded into the `standings`/`team_week_points`
  * views.
  */
-export async function getLeagueWeeklyAwards(supabase: SupabaseClient, leagueId: string): Promise<WeeklyAward[]> {
+export async function getLeagueWeeklyAwards(
+  supabase: SupabaseClient,
+  leagueId: string,
+): Promise<WeeklyAward[]> {
   const { data: teams, error: teamsError } = await supabase
     .from("teams")
     .select("id")
@@ -116,7 +122,7 @@ export async function getTeamWeeklyAwards(
   supabase: SupabaseClient,
   teamId: string,
   season: number,
-  week: number
+  week: number,
 ): Promise<WeeklyAward[]> {
   const { data, error } = await supabase
     .from("weekly_awards")
@@ -134,7 +140,9 @@ export async function getTeamWeeklyAwards(
  * not logged in or don't have a team assigned yet. Replaces the old
  * "?team=<uuid> in the URL" workaround now that real sign-in exists.
  */
-export async function getMyTeamId(supabase: SupabaseClient): Promise<string | null> {
+export async function getMyTeamId(
+  supabase: SupabaseClient,
+): Promise<string | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -157,9 +165,12 @@ export async function getMyTeamId(supabase: SupabaseClient): Promise<string | nu
  * name instead of your raw email once the commissioner has set one up for
  * you, and by the Account page to show/edit your logo.
  */
-export async function getMyTeam(
-  supabase: SupabaseClient
-): Promise<{ id: string; team_name: string; logo_emoji: string | null; logo_image_url: string | null } | null> {
+export async function getMyTeam(supabase: SupabaseClient): Promise<{
+  id: string;
+  team_name: string;
+  logo_emoji: string | null;
+  logo_image_url: string | null;
+} | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -175,7 +186,6 @@ export async function getMyTeam(
   if (error) throw error;
   return data ?? null;
 }
-
 
 /**
  * Sets (or clears) the logo for a team you own -- an emoji, an uploaded
@@ -194,7 +204,7 @@ export async function setMyTeamLogo(
   supabase: SupabaseClient,
   teamId: string,
   logoEmoji: string | null,
-  logoImageUrl: string | null
+  logoImageUrl: string | null,
 ): Promise<void> {
   const { error } = await supabase.rpc("set_my_team_logo", {
     p_team_id: teamId,
@@ -205,32 +215,38 @@ export async function setMyTeamLogo(
 }
 
 /**
- * Uploads an image file for a team's logo and returns its public URL (does
- * NOT save it to the team yet -- call setMyTeamLogo with the result to do
- * that, same as any other "upload, then save" flow).
+ * Uploads an image file to the team-logos storage bucket and returns its
+ * public URL (does NOT save it to the team yet -- call setMyTeamLogo with
+ * the result to do that, same as any other "upload, then save" flow).
  *
- * Goes through the /api/upload-logo server route rather than uploading
- * straight from the browser to Supabase Storage -- Storage's row-level
- * security policies weren't cooperating for reasons we couldn't pin down
- * after a lot of digging, so the server route does the same "is this your
- * team" check in plain code instead, then writes the file using
- * server-only credentials that bypass that particular RLS puzzle entirely.
+ * Uses a fixed path per team (`${teamId}/logo`) with upsert so re-uploading
+ * overwrites the old file instead of accumulating orphaned ones, and tacks
+ * a cache-busting `?v=` timestamp onto the URL we hand back and store --
+ * without it, a re-upload would keep the same URL and browsers/CDNs could
+ * keep showing the old cached image after a change.
  */
-export async function uploadTeamLogo(teamId: string, file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append("teamId", teamId);
-  formData.append("file", file);
-  const res = await fetch("/api/upload-logo", { method: "POST", body: formData });
-  const result = await res.json();
-  if (!res.ok) throw new Error(result.error ?? "Upload failed.");
-  return result.url;
+export async function uploadTeamLogo(
+  supabase: SupabaseClient,
+  teamId: string,
+  file: File,
+): Promise<string> {
+  const path = `${teamId}/logo`;
+  const { error: uploadError } = await supabase.storage
+    .from("team-logos")
+    .upload(path, file, { upsert: true, contentType: file.type });
+  if (uploadError) throw uploadError;
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("team-logos").getPublicUrl(path);
+  return `${publicUrl}?v=${Date.now()}`;
 }
 
 export async function getTeamLineup(
   supabase: SupabaseClient,
   teamId: string,
   season: number,
-  week: number
+  week: number,
 ): Promise<Lineup[]> {
   const { data, error } = await supabase
     .from("lineups")
@@ -259,7 +275,7 @@ export async function getUnavailablePlayerIds(
   supabase: SupabaseClient,
   teamId: string,
   season: number,
-  week: number
+  week: number,
 ): Promise<Set<string>> {
   const [priorRes, thisWeekRes] = await Promise.all([
     supabase
@@ -282,48 +298,93 @@ export async function getUnavailablePlayerIds(
   if (thisWeekRes.error) throw thisWeekRes.error;
 
   const ids = new Set<string>();
-  for (const row of priorRes.data ?? []) if (row.player_id) ids.add(row.player_id);
-  for (const row of thisWeekRes.data ?? []) if (row.player_id) ids.add(row.player_id);
+  for (const row of priorRes.data ?? [])
+    if (row.player_id) ids.add(row.player_id);
+  for (const row of thisWeekRes.data ?? [])
+    if (row.player_id) ids.add(row.player_id);
   return ids;
 }
 
 /**
- * Season-to-date average fantasy points per player, over weeks strictly
- * before `week` (so it never includes the week currently being viewed).
- * Used to show "how has this player actually been performing," which
- * matters more for a pick than a single week's raw stat line once there's
- * a few weeks of history. Returns an empty map for week 1 (nothing to
- * average yet) or before the season has any played games.
+ * Season-to-date CUMULATIVE stats per player, over weeks strictly before
+ * `week` (so it never includes the week currently being viewed) and only
+ * counting games nflverse has actually marked final. Powers both the
+ * Players tab's Season view (total rush yards, total TDs, etc. -- not
+ * just this week's line) and avg_points (still just total_points / games,
+ * kept on AvailablePlayer directly since that one's useful in both views).
+ * Returns an empty map for week 1, or before the season has any finished
+ * games yet.
  */
-async function getSeasonAverages(
+async function getSeasonToDateStats(
   supabase: SupabaseClient,
   season: number,
-  week: number
-): Promise<Map<string, number>> {
+  week: number,
+): Promise<Map<string, SeasonToDateStats>> {
   if (week <= 1) return new Map();
 
   const { data, error } = await supabase
     .from("player_week_stats")
-    .select("player_id, fantasy_points, game_final")
+    .select(
+      "player_id, fantasy_points, game_final, pass_yards, pass_tds, pass_ints, rush_yards, rush_tds, receptions, rec_yards, rec_tds, fumbles_lost, fg_made, fg_att, pat_made, pat_att, def_sacks, def_ints, def_fumble_rec, def_tds, points_allowed",
+    )
     .eq("season", season)
     .lt("week", week)
     .eq("game_final", true);
 
   if (error) throw error;
 
-  const totals = new Map<string, { sum: number; games: number }>();
+  const totals = new Map<string, SeasonToDateStats>();
   for (const row of data ?? []) {
-    const entry = totals.get(row.player_id) ?? { sum: 0, games: 0 };
-    entry.sum += row.fantasy_points ?? 0;
-    entry.games += 1;
-    totals.set(row.player_id, entry);
+    const t: SeasonToDateStats = totals.get(row.player_id) ?? {
+      games: 0,
+      total_points: 0,
+      avg_points: 0,
+      pass_yards: 0,
+      pass_tds: 0,
+      pass_ints: 0,
+      rush_yards: 0,
+      rush_tds: 0,
+      receptions: 0,
+      rec_yards: 0,
+      rec_tds: 0,
+      fumbles_lost: 0,
+      fg_made: 0,
+      fg_att: 0,
+      pat_made: 0,
+      pat_att: 0,
+      def_sacks: 0,
+      def_ints: 0,
+      def_fumble_rec: 0,
+      def_tds: 0,
+      points_allowed: 0,
+    };
+    t.games += 1;
+    t.total_points += row.fantasy_points ?? 0;
+    t.pass_yards += row.pass_yards ?? 0;
+    t.pass_tds += row.pass_tds ?? 0;
+    t.pass_ints += row.pass_ints ?? 0;
+    t.rush_yards += row.rush_yards ?? 0;
+    t.rush_tds += row.rush_tds ?? 0;
+    t.receptions += row.receptions ?? 0;
+    t.rec_yards += row.rec_yards ?? 0;
+    t.rec_tds += row.rec_tds ?? 0;
+    t.fumbles_lost += row.fumbles_lost ?? 0;
+    t.fg_made += row.fg_made ?? 0;
+    t.fg_att += row.fg_att ?? 0;
+    t.pat_made += row.pat_made ?? 0;
+    t.pat_att += row.pat_att ?? 0;
+    t.def_sacks += row.def_sacks ?? 0;
+    t.def_ints += row.def_ints ?? 0;
+    t.def_fumble_rec += row.def_fumble_rec ?? 0;
+    t.def_tds += row.def_tds ?? 0;
+    t.points_allowed += row.points_allowed ?? 0;
+    totals.set(row.player_id, t);
   }
 
-  const averages = new Map<string, number>();
-  for (const [playerId, { sum, games }] of totals) {
-    if (games > 0) averages.set(playerId, sum / games);
+  for (const t of totals.values()) {
+    t.avg_points = t.games > 0 ? t.total_points / t.games : 0;
   }
-  return averages;
+  return totals;
 }
 
 /**
@@ -336,9 +397,9 @@ export async function getAvailablePlayers(
   supabase: SupabaseClient,
   teamId: string,
   season: number,
-  week: number
+  week: number,
 ): Promise<AvailablePlayer[]> {
-  const [unavailable, statsRes, averages] = await Promise.all([
+  const [unavailable, statsRes, seasonStats] = await Promise.all([
     getUnavailablePlayerIds(supabase, teamId, season, week),
     supabase
       .from("player_week_stats")
@@ -347,7 +408,7 @@ export async function getAvailablePlayers(
       .eq("week", week)
       .eq("active", true)
       .not("kickoff", "is", null),
-    getSeasonAverages(supabase, season, week),
+    getSeasonToDateStats(supabase, season, week),
   ]);
 
   if (statsRes.error) throw statsRes.error;
@@ -364,7 +425,8 @@ export async function getAvailablePlayers(
       opponent_is_home: row.opponent_is_home,
       active: row.active,
       locked: row.kickoff ? new Date(row.kickoff).getTime() <= now : false,
-      avg_points: averages.get(row.player_id) ?? null,
+      avg_points: seasonStats.get(row.player_id)?.avg_points ?? null,
+      season: seasonStats.get(row.player_id) ?? null,
       pass_yards: row.pass_yards,
       pass_tds: row.pass_tds,
       pass_ints: row.pass_ints,
@@ -429,7 +491,7 @@ export async function getEligibleCandidates(
   teamId: string,
   season: number,
   week: number,
-  positions: Position[]
+  positions: Position[],
 ): Promise<AvailablePlayer[]> {
   const players = await getAvailablePlayers(supabase, teamId, season, week);
   return players
@@ -437,11 +499,72 @@ export async function getEligibleCandidates(
     .sort((a, b) => {
       if (a.avg_points == null && b.avg_points != null) return 1;
       if (a.avg_points != null && b.avg_points == null) return -1;
-      if (a.avg_points != null && b.avg_points != null && a.avg_points !== b.avg_points) {
+      if (
+        a.avg_points != null &&
+        b.avg_points != null &&
+        a.avg_points !== b.avg_points
+      ) {
         return b.avg_points - a.avg_points;
       }
       return lastNameKey(a.full_name).localeCompare(lastNameKey(b.full_name));
     });
+}
+
+/**
+ * The current week for a season -- the most recent week whose games have
+ * already kicked off, capped so the League Lineups page's WeekPicker never
+ * offers a future week that hasn't happened yet. Falls back to 1 if no
+ * game has kicked off yet this season (preseason, or a brand-new league).
+ */
+export async function getCurrentWeek(
+  supabase: SupabaseClient,
+  season: number,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("player_week_stats")
+    .select("week")
+    .eq("season", season)
+    .not("kickoff", "is", null)
+    .lte("kickoff", new Date().toISOString())
+    .order("week", { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+  return data && data.length > 0 ? data[0].week : 1;
+}
+
+/**
+ * The highest week this team already has ANY lineup row for -- i.e. the
+ * latest week refresh_scores.py's auto-fill has opened up. process_team
+ * only creates week N+1's lineup once week N's last game has kicked off
+ * (see the comment there), so this is exactly "the week you should be
+ * setting right now": once the current week's games are underway/over,
+ * there's nothing actionable left there -- the new week that just opened
+ * is what needs attention. This is what My Lineup defaults to when no
+ * ?week= is given, deliberately different from getCurrentWeek() above
+ * (which League Lineups uses) -- that one answers "what week are we
+ * watching," which lags a week behind this one on purpose: it only
+ * advances once THAT week's games have started, not once next week's
+ * lineup is merely available to set.
+ *
+ * Falls back to 1 if the team has no lineup rows at all yet (a
+ * brand-new team, or auto-fill hasn't run since it was created).
+ */
+export async function getLatestFilledWeek(
+  supabase: SupabaseClient,
+  teamId: string,
+  season: number,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("lineups")
+    .select("week")
+    .eq("team_id", teamId)
+    .eq("season", season)
+    .order("week", { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+  return data && data.length > 0 ? data[0].week : 1;
 }
 
 /**
@@ -452,7 +575,10 @@ export async function getEligibleCandidates(
  * policy that already backs getMyTeam/getCommissionerTeams -- no separate
  * authorization check needed.
  */
-export async function getLeagueTeams(supabase: SupabaseClient, leagueId: string): Promise<LeagueTeamOption[]> {
+export async function getLeagueTeams(
+  supabase: SupabaseClient,
+  leagueId: string,
+): Promise<LeagueTeamOption[]> {
   const { data, error } = await supabase
     .from("teams")
     .select("id, team_name, logo_emoji, logo_image_url")
@@ -463,53 +589,14 @@ export async function getLeagueTeams(supabase: SupabaseClient, leagueId: string)
   return data ?? [];
 }
 
-
-/**
- * The most recent week whose games have actually started, for the given
- * season -- used to cap the League Lineups week-picker so you can look
- * back at any week that's already happened, but not jump ahead to a
- * future week that hasn't kicked off yet. No separate "current week"
- * column exists, so this is derived from player_week_stats.kickoff:
- * looks at each week's EARLIEST kickoff (a week "starts" the moment its
- * first game does, not when every game has), and finds the highest week
- * number whose earliest kickoff is already in the past. Falls back to
- * week 1 before any of this season's games have kicked off yet (true
- * right now, pre-Sept-9 preseason).
- */
-export async function getCurrentWeek(supabase: SupabaseClient, season: number): Promise<number> {
-  const { data, error } = await supabase
-    .from("player_week_stats")
-    .select("week, kickoff")
-    .eq("season", season)
-    .not("kickoff", "is", null)
-    .order("week");
-
-  if (error) throw error;
-
-  const now = Date.now();
-  const firstKickoffByWeek: { [week: number]: number } = {};
-  for (const row of data ?? []) {
-    const week = row.week as number;
-    const t = new Date(row.kickoff as string).getTime();
-    if (firstKickoffByWeek[week] === undefined || t < firstKickoffByWeek[week]) {
-      firstKickoffByWeek[week] = t;
-    }
-  }
-
-  let currentWeek = 1;
-  for (const weekStr of Object.keys(firstKickoffByWeek)) {
-    const week = Number(weekStr);
-    if (firstKickoffByWeek[week] <= now && week > currentWeek) currentWeek = week;
-  }
-  return currentWeek;
-}
-
 /**
  * The league(s) the logged-in user commissions, i.e. leagues where
  * leagues.commissioner_user_id matches them. Empty for anyone who isn't a
  * commissioner -- the /commissioner page uses this to decide what to show.
  */
-export async function getCommissionedLeagues(supabase: SupabaseClient): Promise<CommissionedLeague[]> {
+export async function getCommissionedLeagues(
+  supabase: SupabaseClient,
+): Promise<CommissionedLeague[]> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -533,7 +620,7 @@ export async function getCommissionedLeagues(supabase: SupabaseClient): Promise<
  */
 export async function getCommissionerTeams(
   supabase: SupabaseClient,
-  leagueId: string
+  leagueId: string,
 ): Promise<CommissionerTeamRow[]> {
   const { data: teams, error } = await supabase
     .from("teams")
@@ -551,7 +638,9 @@ export async function getCommissionerTeams(
     .in("id", ownerIds);
 
   if (profilesError) throw profilesError;
-  const emailById = new Map((profiles ?? []).map((p) => [p.id, p.email as string]));
+  const emailById = new Map(
+    (profiles ?? []).map((p) => [p.id, p.email as string]),
+  );
 
   return teams.map((t) => ({
     ...t,
@@ -565,7 +654,9 @@ export async function getCommissionerTeams(
  * commissioner page so setting up or reassigning a team is "pick a name
  * from a list" instead of finding and pasting a raw user id.
  */
-export async function getAllProfiles(supabase: SupabaseClient): Promise<Profile[]> {
+export async function getAllProfiles(
+  supabase: SupabaseClient,
+): Promise<Profile[]> {
   const { data, error } = await supabase
     .from("profiles")
     .select("id, email, full_name, requested_team_name")
@@ -587,11 +678,13 @@ export async function createTeam(
   supabase: SupabaseClient,
   leagueId: string,
   teamName: string,
-  ownerUserId: string
+  ownerUserId: string,
 ): Promise<void> {
-  const { error } = await supabase
-    .from("teams")
-    .insert({ league_id: leagueId, team_name: teamName, owner_user_id: ownerUserId });
+  const { error } = await supabase.from("teams").insert({
+    league_id: leagueId,
+    team_name: teamName,
+    owner_user_id: ownerUserId,
+  });
   if (error) throw error;
 }
 
@@ -602,9 +695,12 @@ export async function createTeam(
 export async function reassignTeamOwner(
   supabase: SupabaseClient,
   teamId: string,
-  newOwnerUserId: string
+  newOwnerUserId: string,
 ): Promise<void> {
-  const { error } = await supabase.from("teams").update({ owner_user_id: newOwnerUserId }).eq("id", teamId);
+  const { error } = await supabase
+    .from("teams")
+    .update({ owner_user_id: newOwnerUserId })
+    .eq("id", teamId);
   if (error) throw error;
 }
 
@@ -613,8 +709,15 @@ export async function reassignTeamOwner(
  * league" RLS policy already covers this -- it's a general UPDATE policy,
  * not scoped to just the owner column -- so no database changes needed.
  */
-export async function renameTeam(supabase: SupabaseClient, teamId: string, teamName: string): Promise<void> {
-  const { error } = await supabase.from("teams").update({ team_name: teamName }).eq("id", teamId);
+export async function renameTeam(
+  supabase: SupabaseClient,
+  teamId: string,
+  teamName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("teams")
+    .update({ team_name: teamName })
+    .eq("id", teamId);
   if (error) throw error;
 }
 
@@ -632,7 +735,7 @@ export async function renameTeam(supabase: SupabaseClient, teamId: string, teamN
 export async function getLeagueMessages(
   supabase: SupabaseClient,
   leagueId: string,
-  limit = 200
+  limit = 200,
 ): Promise<LeagueMessage[]> {
   const { data: messages, error } = await supabase
     .from("league_messages")
@@ -645,9 +748,15 @@ export async function getLeagueMessages(
   if (!messages || messages.length === 0) return [];
 
   const userIds = [...new Set(messages.map((m) => m.user_id))];
-  const [{ data: profiles, error: profilesError }, { data: teams, error: teamsError }] = await Promise.all([
+  const [
+    { data: profiles, error: profilesError },
+    { data: teams, error: teamsError },
+  ] = await Promise.all([
     supabase.from("profiles").select("id, email, full_name").in("id", userIds),
-    supabase.from("teams").select("owner_user_id, logo_emoji, logo_image_url").in("owner_user_id", userIds),
+    supabase
+      .from("teams")
+      .select("owner_user_id, logo_emoji, logo_image_url")
+      .in("owner_user_id", userIds),
   ]);
 
   if (profilesError) throw profilesError;
@@ -659,7 +768,10 @@ export async function getLeagueMessages(
     .map((m) => {
       const author = profileById.get(m.user_id);
       const authorTeam = teamByOwnerId.get(m.user_id);
-      const author_name = author?.full_name || author?.email || `Family member (${m.user_id.slice(0, 8)})`;
+      const author_name =
+        author?.full_name ||
+        author?.email ||
+        `Family member (${m.user_id.slice(0, 8)})`;
       return {
         ...m,
         author_name,
@@ -677,7 +789,11 @@ export async function getLeagueMessages(
  * to enforce that only actual league members can post, and only as
  * themselves -- no separate authorization check needed here.
  */
-export async function postLeagueMessage(supabase: SupabaseClient, leagueId: string, body: string): Promise<void> {
+export async function postLeagueMessage(
+  supabase: SupabaseClient,
+  leagueId: string,
+  body: string,
+): Promise<void> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -687,38 +803,4 @@ export async function postLeagueMessage(supabase: SupabaseClient, leagueId: stri
     .from("league_messages")
     .insert({ league_id: leagueId, user_id: user.id, body });
   if (error) throw error;
-}
-
-/**
- * The highest week this team already has ANY lineup row for -- i.e. the
- * latest week refresh_scores.py's auto-fill has opened up. process_team
- * only creates week N+1's lineup once week N's last game has kicked off
- * (see the comment there), so this is exactly "the week you should be
- * setting right now": once the current week's games are underway/over,
- * there's nothing actionable left there -- the new week that just opened
- * is what needs attention. This is what My Lineup defaults to when no
- * ?week= is given, deliberately different from getCurrentWeek() above
- * (which League Lineups uses) -- that one answers "what week are we
- * watching," which lags a week behind this one on purpose: it only
- * advances once THAT week's games have started, not once next week's
- * lineup is merely available to set.
- *
- * Falls back to 1 if the team has no lineup rows at all yet (a
- * brand-new team, or auto-fill hasn't run since it was created).
- */
-export async function getLatestFilledWeek(
-  supabase: SupabaseClient,
-  teamId: string,
-  season: number
-): Promise<number> {
-  const { data, error } = await supabase
-    .from("lineups")
-    .select("week")
-    .eq("team_id", teamId)
-    .eq("season", season)
-    .order("week", { ascending: false })
-    .limit(1);
-
-  if (error) throw error;
-  return data && data.length > 0 ? data[0].week : 1;
 }
