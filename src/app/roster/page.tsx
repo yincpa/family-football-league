@@ -1,8 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
-import { getTeamLineup, getMyTeamId, getTeamWeeklyAwards } from "@/lib/queries";
+import {
+  getTeamLineup,
+  getMyTeamId,
+  getTeamWeeklyAwards,
+  getLatestFilledWeek,
+} from "@/lib/queries";
 import { ROSTER_SLOTS } from "@/lib/types";
 import RosterTable, { type RosterRow } from "@/components/RosterTable";
 import { TeamLogo } from "@/components/TeamLogoEditor";
+import WeekPicker from "@/components/WeekPicker";
 
 // Forces Next.js to run this Server Component fresh on every single
 // request -- never prerendered, never served from a cached snapshot on a
@@ -19,9 +25,7 @@ export default async function RosterPage({
 }) {
   const sp = await searchParams;
   const seasonDefaulted = sp.season === undefined;
-  const weekDefaulted = sp.week === undefined;
   const season = Number(sp.season ?? new Date().getFullYear());
-  const week = Number(sp.week ?? 1);
 
   const supabase = await createClient();
   // The middleware already requires a logged-in user to reach this page —
@@ -29,19 +33,43 @@ export default async function RosterPage({
   // another team in the same league), but normally we resolve the caller's
   // own team automatically instead of needing it pasted into the URL.
   const teamId = sp.team ?? (await getMyTeamId(supabase)) ?? "";
-  const lineup = teamId ? await getTeamLineup(supabase, teamId, season, week) : [];
+
+  // Defaults to the latest week this team already has a lineup for -- the
+  // week auto-fill just opened up, and therefore the one actually worth
+  // looking at once the previous week's games are underway or over. See
+  // getLatestFilledWeek's own comment for why this isn't the same thing as
+  // League Lineups' getCurrentWeek. Clamped the same way League Lineups
+  // clamps its own week param, so a stale link or a hand-typed future week
+  // number can't show a week that hasn't opened yet.
+  const maxWeek = teamId
+    ? await getLatestFilledWeek(supabase, teamId, season)
+    : 1;
+  const weekDefaulted = sp.week === undefined;
+  const requestedWeek = Number(sp.week ?? maxWeek);
+  const week =
+    requestedWeek >= 1 && requestedWeek <= maxWeek ? requestedWeek : maxWeek;
+
+  const lineup = teamId
+    ? await getTeamLineup(supabase, teamId, season, week)
+    : [];
   // Weekly bonus awards (MVP of the Week / GM of the Week) -- see
   // refresh_scores.py's compute_weekly_awards(). Usually empty; only has
   // rows once this specific team/week combination is both final and a
   // winner of something.
-  const awards = teamId ? await getTeamWeeklyAwards(supabase, teamId, season, week) : [];
+  const awards = teamId
+    ? await getTeamWeeklyAwards(supabase, teamId, season, week)
+    : [];
 
   // The team being viewed isn't necessarily "my" team (?team= lets a
   // commissioner peek at someone else's), so this is looked up by teamId
   // directly rather than reusing getMyTeam -- same read either way, "league
   // members can read teams" RLS covers anyone in the same league.
   const { data: viewedTeam } = teamId
-    ? await supabase.from("teams").select("team_name, logo_emoji, logo_image_url").eq("id", teamId).maybeSingle()
+    ? await supabase
+        .from("teams")
+        .select("team_name, logo_emoji, logo_image_url")
+        .eq("id", teamId)
+        .maybeSingle()
     : { data: null };
 
   type StatsRow = {
@@ -50,7 +78,10 @@ export default async function RosterPage({
     kickoff: string | null;
     opponent: string | null;
     opponent_is_home: boolean | null;
-    nfl_players: { full_name: string; headshot_url: string | null } | { full_name: string; headshot_url: string | null }[] | null;
+    nfl_players:
+      | { full_name: string; headshot_url: string | null }
+      | { full_name: string; headshot_url: string | null }[]
+      | null;
   };
 
   const playerIds = lineup.map((l) => l.player_id).filter(Boolean) as string[];
@@ -69,14 +100,18 @@ export default async function RosterPage({
   if (playerIds.length > 0) {
     const { data } = await supabase
       .from("player_week_stats")
-      .select("player_id, fantasy_points, kickoff, opponent, opponent_is_home, nfl_players(full_name, headshot_url)")
+      .select(
+        "player_id, fantasy_points, kickoff, opponent, opponent_is_home, nfl_players(full_name, headshot_url)",
+      )
       .in("player_id", playerIds)
       .eq("season", season)
       .eq("week", week);
 
     playerDetails = Object.fromEntries(
       ((data as StatsRow[] | null) ?? []).map((row) => {
-        const joined = Array.isArray(row.nfl_players) ? row.nfl_players[0] : row.nfl_players;
+        const joined = Array.isArray(row.nfl_players)
+          ? row.nfl_players[0]
+          : row.nfl_players;
         return [
           row.player_id,
           {
@@ -88,7 +123,7 @@ export default async function RosterPage({
             headshot_url: joined?.headshot_url ?? null,
           },
         ];
-      })
+      }),
     );
   }
 
@@ -102,8 +137,12 @@ export default async function RosterPage({
 
   const initialRows: RosterRow[] = ROSTER_SLOTS.map((slot) => {
     const entry = bySlot[slot];
-    const details = entry?.player_id ? playerDetails[entry.player_id] : undefined;
-    const locked = details?.kickoff ? new Date(details.kickoff).getTime() <= now : false;
+    const details = entry?.player_id
+      ? playerDetails[entry.player_id]
+      : undefined;
+    const locked = details?.kickoff
+      ? new Date(details.kickoff).getTime() <= now
+      : false;
     return {
       slot,
       playerId: entry?.player_id ?? null,
@@ -121,14 +160,19 @@ export default async function RosterPage({
   // team/season/week/award_type), and a team can only ever win MVP by
   // having started that exact player in its own lineup -- so the display
   // name is resolved straight out of initialRows, no extra query needed.
-  const lineupTotal = initialRows.reduce((sum, row) => sum + (row.points ?? 0), 0);
+  const lineupTotal = initialRows.reduce(
+    (sum, row) => sum + (row.points ?? 0),
+    0,
+  );
   const mvpAward = awards.find((a) => a.award_type === "mvp") ?? null;
   const gmAward = awards.find((a) => a.award_type === "gm") ?? null;
-  const bonusTotal = (mvpAward?.bonus_points ?? 0) + (gmAward?.bonus_points ?? 0);
+  const bonusTotal =
+    (mvpAward?.bonus_points ?? 0) + (gmAward?.bonus_points ?? 0);
   const weekTotal = lineupTotal + bonusTotal;
   const mvpPlayerName =
     mvpAward && mvpAward.mvp_player_id
-      ? (initialRows.find((row) => row.playerId === mvpAward.mvp_player_id)?.fullName ?? null)
+      ? (initialRows.find((row) => row.playerId === mvpAward.mvp_player_id)
+          ?.fullName ?? null)
       : null;
 
   return (
@@ -141,28 +185,44 @@ export default async function RosterPage({
             teamName={viewedTeam.team_name}
             size={28}
           />
-          <span className="text-sm font-medium text-neutral-600">{viewedTeam.team_name}</span>
+          <span className="text-sm font-medium text-neutral-600">
+            {viewedTeam.team_name}
+          </span>
         </div>
       )}
-      <h1 className="text-2xl font-semibold mb-1">
-        Week {week} Lineup
-      </h1>
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <h1 className="text-2xl font-semibold">Week {week} Lineup</h1>
+        {teamId && (
+          <WeekPicker
+            selectedWeek={week}
+            maxWeek={maxWeek}
+            teamId={teamId}
+            season={season}
+            basePath="/roster"
+          />
+        )}
+      </div>
       <p className="text-xs font-mono text-neutral-400 mb-2">
         Season {season} · Week {week}
         {(seasonDefaulted || weekDefaulted) && (
-          <span className="text-amber-600"> (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)</span>
+          <span className="text-amber-600">
+            {" "}
+            (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)
+          </span>
         )}
       </p>
       <p className="text-sm text-neutral-500 mb-2">
-        Click &quot;Swap&quot; on any editable slot to change it — a slot locks once that player&apos;s
-        game has started, and you can only swap in a player who hasn&apos;t been used before and whose
-        own game hasn&apos;t started.
+        Click &quot;Swap&quot; on any editable slot to change it — a slot locks
+        once that player&apos;s game has started, and you can only swap in a
+        player who hasn&apos;t been used before and whose own game hasn&apos;t
+        started.
       </p>
       <p className="text-xs text-neutral-400 mb-6">
-        Points aren&apos;t live during a game — our stats source only publishes updates after each
-        game window wraps up (roughly 5pm ET for early games, 8pm ET for the late afternoon
-        window, and after Sunday/Monday night football), not continuously while a game is being
-        played. A slot showing &quot;locked&quot; at 0.00 usually just means that game is still in
+        Points aren&apos;t live during a game — our stats source only publishes
+        updates after each game window wraps up (roughly 5pm ET for early games,
+        8pm ET for the late afternoon window, and after Sunday/Monday night
+        football), not continuously while a game is being played. A slot showing
+        &quot;locked&quot; at 0.00 usually just means that game is still in
         progress.
       </p>
 
@@ -178,7 +238,13 @@ export default async function RosterPage({
 
       {teamId && (
         <>
-          <RosterTable key={`${teamId}-${season}-${week}`} teamId={teamId} season={season} week={week} initialRows={initialRows} />
+          <RosterTable
+            key={`${teamId}-${season}-${week}`}
+            teamId={teamId}
+            season={season}
+            week={week}
+            initialRows={initialRows}
+          />
 
           {/* Weekly bonus awards -- see refresh_scores.py's
               compute_weekly_awards(). Right-aligned/tabular-nums so the
@@ -187,25 +253,34 @@ export default async function RosterPage({
             <tbody>
               <tr className="text-neutral-500">
                 <td className="py-1">Lineup total</td>
-                <td className="py-1 text-right tabular-nums">{lineupTotal.toFixed(2)}</td>
+                <td className="py-1 text-right tabular-nums">
+                  {lineupTotal.toFixed(2)}
+                </td>
               </tr>
               {mvpAward && (
                 <tr className="text-amber-600">
                   <td className="py-1">
-                    🏆 MVP of the Week{mvpPlayerName ? ` (${mvpPlayerName})` : ""}
+                    🏆 MVP of the Week
+                    {mvpPlayerName ? ` (${mvpPlayerName})` : ""}
                   </td>
-                  <td className="py-1 text-right tabular-nums">+{mvpAward.bonus_points.toFixed(2)}</td>
+                  <td className="py-1 text-right tabular-nums">
+                    +{mvpAward.bonus_points.toFixed(2)}
+                  </td>
                 </tr>
               )}
               {gmAward && (
                 <tr className="text-amber-600">
                   <td className="py-1">🏆 GM of the Week</td>
-                  <td className="py-1 text-right tabular-nums">+{gmAward.bonus_points.toFixed(2)}</td>
+                  <td className="py-1 text-right tabular-nums">
+                    +{gmAward.bonus_points.toFixed(2)}
+                  </td>
                 </tr>
               )}
               <tr className="font-semibold border-t border-neutral-200">
                 <td className="py-1">Week total</td>
-                <td className="py-1 text-right tabular-nums">{weekTotal.toFixed(2)}</td>
+                <td className="py-1 text-right tabular-nums">
+                  {weekTotal.toFixed(2)}
+                </td>
               </tr>
             </tbody>
           </table>
