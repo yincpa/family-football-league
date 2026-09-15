@@ -3,24 +3,27 @@
 import { useRouter } from "next/navigation";
 
 /**
- * Dropdown for switching which week's lineup the League Lineups page
- * shows -- capped at maxWeek (the most recent week whose games have
- * actually started, see getCurrentWeek() in queries.ts) so you can look
- * back at any past week's locked-in lineup and scores, but can't jump
- * ahead to a future week that hasn't happened yet. Navigates by changing
- * the URL's ?week= (team/season carry over unchanged), same pattern as
- * TeamPicker.
+ * Dropdown for switching which week a lineup page shows, capped at
+ * maxWeek. Shared by both League Lineups (maxWeek = getCurrentWeek, the
+ * most recent week that's started) and My Lineup (maxWeek =
+ * getLatestFilledWeek, the latest week auto-fill has opened up) -- each
+ * page passes its own basePath so this doesn't need to know which one
+ * it's on. Same plain-<select> pattern as TeamPicker, for the same
+ * reasons: least code, works everywhere, and keeps the page itself a
+ * Server Component driven entirely by URL search params.
  */
 export default function WeekPicker({
   selectedWeek,
   maxWeek,
   teamId,
   season,
+  basePath,
 }: {
   selectedWeek: number;
   maxWeek: number;
   teamId: string;
   season: number;
+  basePath: string;
 }) {
   const router = useRouter();
   const weeks: number[] = [];
@@ -29,7 +32,11 @@ export default function WeekPicker({
   return (
     <select
       value={selectedWeek}
-      onChange={(e) => router.push(`/league-lineups?team=${teamId}&season=${season}&week=${e.target.value}`)}
+      onChange={(e) =>
+        router.push(
+          `${basePath}?team=${teamId}&season=${season}&week=${e.target.value}`,
+        )
+      }
       className="text-sm border border-neutral-300 rounded-md px-3 py-1.5 bg-white"
     >
       {weeks.map((w) => (
