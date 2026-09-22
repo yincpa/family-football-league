@@ -60,24 +60,14 @@ function seasonValue(p: AvailablePlayer, key: SortKey): number | null {
 // isn't season-aware (name, position, opponent, avg_points, etc.), so the
 // toggle only ever changes the columns it actually applies to.
 function getStatValue(p: AvailablePlayer, key: SortKey, mode: StatsMode) {
-  if (mode === "season" && SEASON_AWARE_KEYS.has(key))
-    return seasonValue(p, key);
+  if (mode === "season" && SEASON_AWARE_KEYS.has(key)) return seasonValue(p, key);
   return p[key];
 }
 
 // Roster-slot-shaped tabs, not raw NFL positions -- FLEX is a real slot a
 // family member fills, so it gets its own tab (RB/WR/TE pooled together)
 // rather than making them flip between three tabs to compare FLEX options.
-const POSITION_TABS = [
-  "All",
-  "QB",
-  "RB",
-  "WR",
-  "TE",
-  "FLEX",
-  "K",
-  "DST",
-] as const;
+const POSITION_TABS = ["All", "QB", "RB", "WR", "TE", "FLEX", "K", "DST"] as const;
 type PositionTab = (typeof POSITION_TABS)[number];
 
 function tabPositions(tab: PositionTab): Position[] | null {
@@ -89,10 +79,7 @@ function tabPositions(tab: PositionTab): Position[] | null {
 // "vs SEA" for a home game, "@ SEA" for a road game -- relevant context for
 // deciding whether to start someone (e.g. a tough road matchup), so it sits
 // right next to Team rather than being buried in a stat column.
-function formatOpponent(
-  opponent: string | null,
-  isHome: boolean | null,
-): string {
+function formatOpponent(opponent: string | null, isHome: boolean | null): string {
   if (!opponent) return "—";
   return isHome ? `vs ${opponent}` : `@ ${opponent}`;
 }
@@ -102,9 +89,7 @@ function formatOpponent(
 // position appear (a kicker's FG/PAT, not a QB's passing line, etc).
 // Shown only when a single specific position tab is active; "All" and
 // "FLEX" mix positions where these columns wouldn't line up meaningfully.
-const POSITION_STAT_COLUMNS: Partial<
-  Record<Position, { key: SortKey; label: string }[]>
-> = {
+const POSITION_STAT_COLUMNS: Partial<Record<Position, { key: SortKey; label: string }[]>> = {
   QB: [
     { key: "pass_yards", label: "Pass Yds" },
     { key: "pass_tds", label: "Pass TD" },
@@ -176,12 +161,21 @@ function renderCell(p: AvailablePlayer, key: SortKey, mode: StatsMode) {
     case "avg_points":
       // Already a season-wide figure either way -- see SEASON_AWARE_KEYS.
       return p.avg_points != null ? p.avg_points.toFixed(2) : "—";
-    case "locked":
+    case "locked": {
+      // A player you've already used takes priority over the game-clock
+      // based locked/available distinction -- "Used" in red is the one
+      // thing worth calling out here, whether or not their game has
+      // started yet (getEligibleCandidates already keeps these out of the
+      // Swap dropdown, so this is display-only: look, don't touch).
+      if (p.alreadyUsedByYou) {
+        return <span className="text-xs text-red-600 font-medium">Used</span>;
+      }
       return p.locked ? (
         <span className="text-xs text-neutral-400">locked</span>
       ) : (
         <span className="text-xs text-emerald-600">available</span>
       );
+    }
     // Made/attempted pairs read better as "3/4" than as two separate columns.
     case "fg_made": {
       if (mode === "season") {
@@ -234,8 +228,7 @@ function PlayersTable() {
       setLoading(true);
       setErrorMsg(null);
       try {
-        const resolvedTeamId =
-          teamIdParam || (await getMyTeamId(supabase)) || "";
+        const resolvedTeamId = teamIdParam || (await getMyTeamId(supabase)) || "";
         if (cancelled) return;
         setTeamId(resolvedTeamId);
         if (!resolvedTeamId) return;
@@ -262,9 +255,7 @@ function PlayersTable() {
 
   const filtered = useMemo(() => {
     const allowed = tabPositions(positionTab);
-    return allowed
-      ? players.filter((p) => allowed.includes(p.position))
-      : players;
+    return allowed ? players.filter((p) => allowed.includes(p.position)) : players;
   }, [players, positionTab]);
 
   const sorted = useMemo(() => {
@@ -279,14 +270,14 @@ function PlayersTable() {
         av == null && bv == null
           ? 0
           : av == null
-            ? 1
-            : bv == null
-              ? -1
-              : typeof av === "number" && typeof bv === "number"
-                ? av - bv
-                : typeof av === "boolean" && typeof bv === "boolean"
-                  ? Number(av) - Number(bv)
-                  : String(av).localeCompare(String(bv));
+          ? 1
+          : bv == null
+          ? -1
+          : typeof av === "number" && typeof bv === "number"
+          ? av - bv
+          : typeof av === "boolean" && typeof bv === "boolean"
+          ? Number(av) - Number(bv)
+          : String(av).localeCompare(String(bv));
       return sortDesc ? -cmp : cmp;
     });
     return copy;
@@ -303,13 +294,8 @@ function PlayersTable() {
   // Single-position tabs get that position's relevant stat columns inlined
   // between Team and the points columns; "All"/"FLEX" mix positions so
   // those columns are skipped there (nothing would line up meaningfully).
-  const singlePosition =
-    positionTab !== "All" && positionTab !== "FLEX"
-      ? (positionTab as Position)
-      : null;
-  const statColumns = singlePosition
-    ? (POSITION_STAT_COLUMNS[singlePosition] ?? [])
-    : [];
+  const singlePosition = positionTab !== "All" && positionTab !== "FLEX" ? (positionTab as Position) : null;
+  const statColumns = singlePosition ? POSITION_STAT_COLUMNS[singlePosition] ?? [] : [];
 
   const columns: { key: SortKey; label: string }[] = [
     { key: "full_name", label: "Player" },
@@ -317,10 +303,7 @@ function PlayersTable() {
     { key: "nfl_team", label: "Team" },
     { key: "opponent", label: "Opp" },
     ...statColumns,
-    {
-      key: "fantasy_points",
-      label: statsMode === "season" ? "Season Pts" : `Wk ${week} Pts`,
-    },
+    { key: "fantasy_points", label: statsMode === "season" ? "Season Pts" : `Wk ${week} Pts` },
     { key: "avg_points", label: "Avg Pts" },
     { key: "locked", label: "Status" },
   ];
@@ -342,15 +325,14 @@ function PlayersTable() {
       <p className="text-xs font-mono text-neutral-400 mb-2">
         Season {season} · Week {week}
         {(seasonDefaulted || weekDefaulted) && (
-          <span className="text-amber-600">
-            {" "}
-            (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)
-          </span>
+          <span className="text-amber-600"> (defaulted — add &amp;season=…&amp;week=… to the URL to pin this)</span>
         )}
       </p>
       <p className="text-sm text-neutral-500 mb-4">
-        Players not yet used by this team, active this week. Pick a position to
-        compare, click a column header to sort.
+        Every active player this week, including ones you&apos;ve already used
+        (shown in red, marked &quot;Used&quot;) so you can compare stats even
+        though they&apos;re no longer pickable. Pick a position to compare,
+        click a column header to sort.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-3">
@@ -371,10 +353,12 @@ function PlayersTable() {
       </div>
 
       <div className="flex flex-wrap gap-2 mb-6">
-        {[
-          { mode: "week" as const, label: `This Week (Wk ${week})` },
-          { mode: "season" as const, label: "Season to Date" },
-        ].map((opt) => (
+        {(
+          [
+            { mode: "week" as const, label: `This Week (Wk ${week})` },
+            { mode: "season" as const, label: "Season to Date" },
+          ]
+        ).map((opt) => (
           <button
             key={opt.mode}
             onClick={() => setStatsMode(opt.mode)}
@@ -421,12 +405,15 @@ function PlayersTable() {
             </thead>
             <tbody>
               {sorted.map((p) => (
-                <tr key={p.player_id} className="border-b border-neutral-100">
+                <tr
+                  key={p.player_id}
+                  className={
+                    "border-b border-neutral-100" +
+                    (p.alreadyUsedByYou ? " text-red-600" : "")
+                  }
+                >
                   {columns.map((c) => (
-                    <td
-                      key={c.key}
-                      className="py-2 pr-4 tabular-nums whitespace-nowrap"
-                    >
+                    <td key={c.key} className="py-2 pr-4 tabular-nums whitespace-nowrap">
                       {renderCell(p, c.key, statsMode)}
                     </td>
                   ))}
@@ -434,10 +421,7 @@ function PlayersTable() {
               ))}
               {sorted.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={columns.length}
-                    className="py-6 text-center text-neutral-400"
-                  >
+                  <td colSpan={columns.length} className="py-6 text-center text-neutral-400">
                     No eligible players found.
                   </td>
                 </tr>
