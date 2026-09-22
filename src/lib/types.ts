@@ -2,20 +2,9 @@
 // database — if the schema changes, update here too.
 
 export type Position = "QB" | "RB" | "WR" | "TE" | "K" | "DST";
-export type Slot =
-  "QB" | "RB1" | "RB2" | "WR1" | "WR2" | "TE" | "FLEX" | "K" | "DST";
+export type Slot = "QB" | "RB1" | "RB2" | "WR1" | "WR2" | "TE" | "FLEX" | "K" | "DST";
 
-export const ROSTER_SLOTS: Slot[] = [
-  "QB",
-  "RB1",
-  "RB2",
-  "WR1",
-  "WR2",
-  "TE",
-  "FLEX",
-  "K",
-  "DST",
-];
+export const ROSTER_SLOTS: Slot[] = ["QB", "RB1", "RB2", "WR1", "WR2", "TE", "FLEX", "K", "DST"];
 
 export const SLOT_POSITIONS: Record<Slot, Position[]> = {
   QB: ["QB"],
@@ -174,6 +163,15 @@ export interface AvailablePlayer extends NflPlayer {
   active: boolean;
   locked: boolean; // kickoff has already passed
   avg_points: number | null; // season-to-date average over prior weeks, null if no history yet
+  // True once this player has already been placed in one of this team's own
+  // lineups -- a prior week, or this week's own lineup elsewhere. Distinct
+  // from `locked` (which is about the game clock, not roster history): a
+  // player can be locked without being used by you, and used by you without
+  // being locked yet. The Players tab shows these players (rather than
+  // hiding them, as it used to) so a "used" player's stats can still be
+  // compared against the field, but getEligibleCandidates (the Swap
+  // dropdown on My Lineup) filters them back out -- you can look, not touch.
+  alreadyUsedByYou: boolean;
   pass_yards: number | null;
   pass_tds: number | null;
   pass_ints: number | null;
