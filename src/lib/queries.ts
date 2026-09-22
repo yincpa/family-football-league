@@ -29,18 +29,6 @@ export async function getStandings(
   return data ?? [];
 }
 
-/**
- * Every team's points, broken out by week, for a league -- powers the
- * week-by-week columns on the Standings page. Two queries (teams in this
- * league, then their week points) rather than a single joined query, same
- * pattern used elsewhere in this file, since `team_week_points` has no
- * direct league_id column to filter on.
- *
- * A team only has a row for a week once it actually has a lineup for that
- * week (see the view definition in schema.sql), so this naturally covers
- * exactly "season-to-date" -- weeks nobody's been auto-filled for yet just
- * don't show up, no separate "current week" cutoff logic needed here.
- */
 export async function getWeeklyTeamPoints(
   supabase: SupabaseClient,
   leagueId: string,
@@ -63,12 +51,6 @@ export async function getWeeklyTeamPoints(
   return data ?? [];
 }
 
-/**
- * Every team's logo in a league (id + emoji/image, whichever is set) --
- * powers the small logo shown next to each team name on Standings. Same
- * "separate query, merge client-side" pattern as getWeeklyTeamPoints right
- * above, for the same reason (no single view has both).
- */
 export async function getTeamLogos(
   supabase: SupabaseClient,
   leagueId: string,
@@ -82,14 +64,6 @@ export async function getTeamLogos(
   return data ?? [];
 }
 
-/**
- * Every weekly bonus award (MVP of the Week / GM of the Week) earned by any
- * team in a league, across the whole season -- powers the bonus-adjusted
- * totals on Standings. Same "separate query, merge client-side" pattern as
- * getWeeklyTeamPoints/getTeamLogos right above, since awards live in their
- * own table rather than being folded into the `standings`/`team_week_points`
- * views.
- */
 export async function getLeagueWeeklyAwards(
   supabase: SupabaseClient,
   leagueId: string,
@@ -112,12 +86,6 @@ export async function getLeagueWeeklyAwards(
   return data ?? [];
 }
 
-/**
- * One team's bonus awards for a single specific week -- powers the small
- * bonus table at the bottom of the Lineup page. Usually empty (most
- * team/week combinations win nothing); at most one "mvp" row and one "gm"
- * row for any given team/week.
- */
 export async function getTeamWeeklyAwards(
   supabase: SupabaseClient,
   teamId: string,
@@ -135,11 +103,6 @@ export async function getTeamWeeklyAwards(
   return data ?? [];
 }
 
-/**
- * The team id owned by the currently logged-in user, or null if they're
- * not logged in or don't have a team assigned yet. Replaces the old
- * "?team=<uuid> in the URL" workaround now that real sign-in exists.
- */
 export async function getMyTeamId(
   supabase: SupabaseClient,
 ): Promise<string | null> {
@@ -159,12 +122,6 @@ export async function getMyTeamId(
   return data?.id ?? null;
 }
 
-/**
- * The current user's own team (id + name + logo), or null if they're not
- * signed in or don't have a team yet. Used by the nav bar to show your team
- * name instead of your raw email once the commissioner has set one up for
- * you, and by the Account page to show/edit your logo.
- */
 export async function getMyTeam(supabase: SupabaseClient): Promise<{
   id: string;
   team_name: string;
@@ -187,19 +144,6 @@ export async function getMyTeam(supabase: SupabaseClient): Promise<{
   return data ?? null;
 }
 
-/**
- * Sets (or clears) the logo for a team you own -- an emoji, an uploaded
- * image's URL, or both null to remove it. The two are mutually exclusive:
- * whichever one you're setting, pass the other as null to clear it.
- *
- * Goes through the set_my_team_logo() database function rather than a
- * plain `.update()` on `teams`, deliberately: team owners otherwise have no
- * UPDATE permission on `teams` at all (renaming/reassigning stays
- * commissioner-only, per how that feature was built). The function is
- * SECURITY DEFINER and only ever touches the logo_emoji/logo_image_url
- * columns on a team you actually own, so it can't be used to rename a team
- * or take over someone else's.
- */
 export async function setMyTeamLogo(
   supabase: SupabaseClient,
   teamId: string,
@@ -214,17 +158,6 @@ export async function setMyTeamLogo(
   if (error) throw error;
 }
 
-/**
- * Uploads an image file to the team-logos storage bucket and returns its
- * public URL (does NOT save it to the team yet -- call setMyTeamLogo with
- * the result to do that, same as any other "upload, then save" flow).
- *
- * Uses a fixed path per team (`${teamId}/logo`) with upsert so re-uploading
- * overwrites the old file instead of accumulating orphaned ones, and tacks
- * a cache-busting `?v=` timestamp onto the URL we hand back and store --
- * without it, a re-upload would keep the same URL and browsers/CDNs could
- * keep showing the old cached image after a change.
- */
 export async function uploadTeamLogo(
   supabase: SupabaseClient,
   teamId: string,
@@ -388,10 +321,16 @@ async function getSeasonToDateStats(
 }
 
 /**
- * Players eligible for this team this week: active, not on a bye, and not
- * already unavailable per getUnavailablePlayerIds above. Two queries + a
- * client-side filter, rather than one complex SQL join — simple, and fine
- * at this league's scale (a few hundred players/week).
+ * Every active player with a game this week, joined with this week's stats
+ * and this team's season-to-date stats -- the Players tab's full pool.
+ *
+ * Deliberately does NOT drop players this team has already used (a prior
+ * week, or this week's own lineup elsewhere) -- it flags them instead via
+ * `alreadyUsedByYou`, so the Players tab can show them (in red, marked
+ * "Used") for stat comparison rather than hiding them outright. Anything
+ * that must never offer an already-used player as a pick -- the Swap
+ * dropdown on My Lineup -- filters `alreadyUsedByYou` back out itself; see
+ * getEligibleCandidates below.
  */
 export async function getAvailablePlayers(
   supabase: SupabaseClient,
@@ -416,7 +355,7 @@ export async function getAvailablePlayers(
   const now = Date.now();
 
   return (statsRes.data ?? [])
-    .filter((row) => !unavailable.has(row.player_id) && row.nfl_players)
+    .filter((row) => row.nfl_players)
     .map((row) => ({
       ...row.nfl_players,
       fantasy_points: row.fantasy_points,
@@ -426,6 +365,7 @@ export async function getAvailablePlayers(
       active: row.active,
       locked: row.kickoff ? new Date(row.kickoff).getTime() <= now : false,
       avg_points: seasonStats.get(row.player_id)?.avg_points ?? null,
+      alreadyUsedByYou: unavailable.has(row.player_id),
       season: seasonStats.get(row.player_id) ?? null,
       pass_yards: row.pass_yards,
       pass_tds: row.pass_tds,
@@ -480,11 +420,15 @@ function lastNameKey(fullName: string): string {
 /**
  * Candidates actually selectable for a swap into a given slot: eligible
  * players (see getAvailablePlayers) narrowed to the slot's allowed
- * positions and to games that haven't started yet (a locked player can be
- * viewed on the Players tab, but can never be swapped in). Sorted by
- * season-to-date average points (best first, no-history players last), with
- * last name as an alphabetical tiebreaker -- see lastNameKey above for why
- * this week's live points isn't a useful sort key here.
+ * positions, to games that haven't started yet (a locked player can be
+ * viewed on the Players tab, but can never be swapped in), and to players
+ * this team hasn't already used (getAvailablePlayers itself now includes
+ * those -- flagged via alreadyUsedByYou -- for the Players tab's stat
+ * comparison view, so this is the one place that has to filter them back
+ * out: an already-used player must never be offered as a swap-in option).
+ * Sorted by season-to-date average points (best first, no-history players
+ * last), with last name as an alphabetical tiebreaker -- see lastNameKey
+ * above for why this week's live points isn't a useful sort key here.
  */
 export async function getEligibleCandidates(
   supabase: SupabaseClient,
@@ -495,7 +439,10 @@ export async function getEligibleCandidates(
 ): Promise<AvailablePlayer[]> {
   const players = await getAvailablePlayers(supabase, teamId, season, week);
   return players
-    .filter((p) => positions.includes(p.position) && !p.locked)
+    .filter(
+      (p) =>
+        positions.includes(p.position) && !p.locked && !p.alreadyUsedByYou,
+    )
     .sort((a, b) => {
       if (a.avg_points == null && b.avg_points != null) return 1;
       if (a.avg_points != null && b.avg_points == null) return -1;
@@ -510,12 +457,6 @@ export async function getEligibleCandidates(
     });
 }
 
-/**
- * The current week for a season -- the most recent week whose games have
- * already kicked off, capped so the League Lineups page's WeekPicker never
- * offers a future week that hasn't happened yet. Falls back to 1 if no
- * game has kicked off yet this season (preseason, or a brand-new league).
- */
 export async function getCurrentWeek(
   supabase: SupabaseClient,
   season: number,
@@ -533,23 +474,6 @@ export async function getCurrentWeek(
   return data && data.length > 0 ? data[0].week : 1;
 }
 
-/**
- * The highest week this team already has ANY lineup row for -- i.e. the
- * latest week refresh_scores.py's auto-fill has opened up. process_team
- * only creates week N+1's lineup once week N's last game has kicked off
- * (see the comment there), so this is exactly "the week you should be
- * setting right now": once the current week's games are underway/over,
- * there's nothing actionable left there -- the new week that just opened
- * is what needs attention. This is what My Lineup defaults to when no
- * ?week= is given, deliberately different from getCurrentWeek() above
- * (which League Lineups uses) -- that one answers "what week are we
- * watching," which lags a week behind this one on purpose: it only
- * advances once THAT week's games have started, not once next week's
- * lineup is merely available to set.
- *
- * Falls back to 1 if the team has no lineup rows at all yet (a
- * brand-new team, or auto-fill hasn't run since it was created).
- */
 export async function getLatestFilledWeek(
   supabase: SupabaseClient,
   teamId: string,
@@ -567,14 +491,6 @@ export async function getLatestFilledWeek(
   return data && data.length > 0 ? data[0].week : 1;
 }
 
-/**
- * Every team in a league (id, name, logo), sorted by name -- powers the
- * team-picker dropdown on the League Lineups page (view-only lineups for
- * every team in the league, not just your own). Anyone in the league can
- * see every team here via the same "league members can read teams" RLS
- * policy that already backs getMyTeam/getCommissionerTeams -- no separate
- * authorization check needed.
- */
 export async function getLeagueTeams(
   supabase: SupabaseClient,
   leagueId: string,
@@ -589,11 +505,6 @@ export async function getLeagueTeams(
   return data ?? [];
 }
 
-/**
- * The league(s) the logged-in user commissions, i.e. leagues where
- * leagues.commissioner_user_id matches them. Empty for anyone who isn't a
- * commissioner -- the /commissioner page uses this to decide what to show.
- */
 export async function getCommissionedLeagues(
   supabase: SupabaseClient,
 ): Promise<CommissionedLeague[]> {
@@ -611,13 +522,6 @@ export async function getCommissionedLeagues(
   return data ?? [];
 }
 
-/**
- * Every team in a league, with the owner's email resolved from `profiles`
- * for display. Two queries + a client-side merge (same pattern as
- * getAvailablePlayers' season-average join) rather than a DB foreign key
- * between teams and profiles, since owner_user_id and profiles.id both
- * point at auth.users independently rather than at each other.
- */
 export async function getCommissionerTeams(
   supabase: SupabaseClient,
   leagueId: string,
@@ -648,12 +552,6 @@ export async function getCommissionerTeams(
   }));
 }
 
-/**
- * Every account that has ever signed up (id + email from `profiles`),
- * sorted by email. Populates the owner-picker dropdowns on the
- * commissioner page so setting up or reassigning a team is "pick a name
- * from a list" instead of finding and pasting a raw user id.
- */
 export async function getAllProfiles(
   supabase: SupabaseClient,
 ): Promise<Profile[]> {
@@ -666,32 +564,22 @@ export async function getAllProfiles(
   return data ?? [];
 }
 
-/**
- * Creates a new team in a league, owned by the given user id. Relies on
- * the "commissioners can insert teams in their league" RLS policy to
- * enforce that only that league's commissioner can actually do this --
- * there's no separate authorization check here, the database is the
- * source of truth. A user id that isn't a real signed-up account fails
- * with a foreign-key error, surfaced to the caller as-is.
- */
 export async function createTeam(
   supabase: SupabaseClient,
   leagueId: string,
   teamName: string,
   ownerUserId: string,
 ): Promise<void> {
-  const { error } = await supabase.from("teams").insert({
-    league_id: leagueId,
-    team_name: teamName,
-    owner_user_id: ownerUserId,
-  });
+  const { error } = await supabase
+    .from("teams")
+    .insert({
+      league_id: leagueId,
+      team_name: teamName,
+      owner_user_id: ownerUserId,
+    });
   if (error) throw error;
 }
 
-/**
- * Reassigns an existing team to a different owner. Same RLS-enforced
- * pattern as createTeam above.
- */
 export async function reassignTeamOwner(
   supabase: SupabaseClient,
   teamId: string,
@@ -704,11 +592,6 @@ export async function reassignTeamOwner(
   if (error) throw error;
 }
 
-/**
- * Renames an existing team. Same "commissioners can update teams in their
- * league" RLS policy already covers this -- it's a general UPDATE policy,
- * not scoped to just the owner column -- so no database changes needed.
- */
 export async function renameTeam(
   supabase: SupabaseClient,
   teamId: string,
@@ -721,17 +604,6 @@ export async function renameTeam(
   if (error) throw error;
 }
 
-/**
- * The most recent messages in a league's chat (newest LIMIT last, i.e.
- * returned in chronological order, oldest first, ready to render top to
- * bottom). Author display name and team logo are resolved client-side
- * against `profiles` and `teams` -- same two-query-plus-merge pattern as
- * getCommissionerTeams -- preferring full_name, then falling back to
- * email, then a short id fragment so a message never renders blank if a
- * profile is somehow missing. A sender with no team yet (or no logo set)
- * just comes back with both logo fields null -- the chat UI falls back to
- * showing no avatar for that message.
- */
 export async function getLeagueMessages(
   supabase: SupabaseClient,
   leagueId: string,
@@ -782,13 +654,6 @@ export async function getLeagueMessages(
     .reverse(); // oldest first for rendering
 }
 
-/**
- * Posts a new chat message as the currently logged-in user. Relies on the
- * "league members can post messages" RLS policy (checks league_id against
- * user_league_ids()/user_commissioned_league_ids() and user_id = auth.uid())
- * to enforce that only actual league members can post, and only as
- * themselves -- no separate authorization check needed here.
- */
 export async function postLeagueMessage(
   supabase: SupabaseClient,
   leagueId: string,
