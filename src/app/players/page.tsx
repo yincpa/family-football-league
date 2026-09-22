@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   getAvailablePlayers,
@@ -198,6 +198,7 @@ function renderCell(p: AvailablePlayer, key: SortKey, mode: StatsMode) {
 }
 
 function PlayersTable() {
+  const router = useRouter();
   const params = useSearchParams();
   // ?team=<uuid> still works as an override; normally we resolve the
   // logged-in user's own team automatically instead.
@@ -211,7 +212,7 @@ function PlayersTable() {
   const [maxWeek, setMaxWeek] = useState<number>(1);
   const [players, setPlayers] = useState<AvailablePlayer[]>([]);
   const [positionTab, setPositionTab] = useState<PositionTab>("All");
-  const [statsMode, setStatsMode] = useState<StatsMode>("week");
+  const [statsMode, setStatsMode] = useState<StatsMode>("season");
   const [sortKey, setSortKey] = useState<SortKey>("fantasy_points");
   const [sortDesc, setSortDesc] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -232,14 +233,31 @@ function PlayersTable() {
         if (cancelled) return;
         setTeamId(resolvedTeamId);
         if (!resolvedTeamId) return;
-        const [data, latestWeek] = await Promise.all([
-          getAvailablePlayers(supabase, resolvedTeamId, season, week),
-          getLatestFilledWeek(supabase, resolvedTeamId, season),
-        ]);
-        if (!cancelled) {
-          setPlayers(data);
-          setMaxWeek(latestWeek);
+
+        const latestWeek = await getLatestFilledWeek(supabase, resolvedTeamId, season);
+        if (cancelled) return;
+        setMaxWeek(latestWeek);
+
+        // Default to the latest week that's opened up (same "latest filled
+        // week" semantics My Lineup uses) when no ?week= is in the URL, and
+        // clamp anything out of range back to it too. This is a client
+        // component reading week off useSearchParams rather than a server
+        // component's searchParams prop, so "default" has to mean pushing
+        // the right value into the URL itself (router.replace) rather than
+        // just computing it locally -- that's what keeps the WeekPicker,
+        // the address bar, and the fetched data all agreeing on the week.
+        const effectiveWeek =
+          !weekDefaulted && week >= 1 && week <= latestWeek ? week : latestWeek;
+
+        if (weekDefaulted || effectiveWeek !== week) {
+          router.replace(
+            `/players?team=${resolvedTeamId}&season=${season}&week=${effectiveWeek}`,
+          );
+          return; // the URL change re-triggers this effect with the right week
         }
+
+        const data = await getAvailablePlayers(supabase, resolvedTeamId, season, week);
+        if (!cancelled) setPlayers(data);
       } catch (e) {
         if (!cancelled) setErrorMsg(e instanceof Error ? e.message : String(e));
       } finally {
@@ -251,7 +269,7 @@ function PlayersTable() {
     return () => {
       cancelled = true;
     };
-  }, [teamIdParam, season, week]);
+  }, [teamIdParam, season, week, weekDefaulted, router]);
 
   const filtered = useMemo(() => {
     const allowed = tabPositions(positionTab);
