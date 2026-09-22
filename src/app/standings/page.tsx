@@ -51,6 +51,21 @@ export default async function StandingsPage() {
     bonusTotalByTeam.set(award.team_id, (bonusTotalByTeam.get(award.team_id) ?? 0) + award.bonus_points);
   }
 
+  // Ranked by the same bonus-inclusive figure the Total column actually
+  // shows -- NOT by row.total_points alone (that's just the raw lineup
+  // sum straight off the `standings` DB view, before MVP/GM bonuses are
+  // folded in below). Sorting by the raw value while displaying the
+  // bonus-inclusive one let a team with a big bonus week show a higher
+  // Total than teams ranked above it -- ranking and the number shown next
+  // to it now agree. Array.prototype.sort is stable, so two teams tied on
+  // total keep whatever order getStandings originally gave them.
+  const rankedTeams = standings
+    .map((row) => ({
+      row,
+      total: row.total_points + (bonusTotalByTeam.get(row.team_id) ?? 0),
+    }))
+    .sort((a, b) => b.total - a.total);
+
   // Rank, Team, and Total all stay pinned on the left (via `sticky` +
   // matching `left` offsets that line up with each column's fixed width
   // below), with a border marking where the pinned columns end and the
@@ -89,10 +104,9 @@ export default async function StandingsPage() {
             </tr>
           </thead>
           <tbody>
-            {standings.map((row, i) => {
+            {rankedTeams.map(({ row, total }, i) => {
               const teamWeeks = pointsByTeam.get(row.team_id);
               const teamBonusWeeks = bonusByTeamWeek.get(row.team_id);
-              const total = row.total_points + (bonusTotalByTeam.get(row.team_id) ?? 0);
               return (
                 <tr key={row.team_id} className="border-b border-neutral-100">
                   <td className="sticky left-0 z-10 bg-white py-2 pl-3 pr-2 text-neutral-500">{i + 1}</td>
@@ -132,7 +146,7 @@ export default async function StandingsPage() {
                 </tr>
               );
             })}
-            {standings.length === 0 && LEAGUE_ID && (
+            {rankedTeams.length === 0 && LEAGUE_ID && (
               <tr>
                 <td colSpan={weeks.length + 3} className="py-6 text-center text-neutral-400">
                   No teams yet.
