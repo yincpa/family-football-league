@@ -531,15 +531,33 @@ def upsert_player_week_stats(supabase, pool):
     upsert_in_batches(supabase, "player_week_stats", rows, on_conflict="player_id,season,week")
     return len(rows)
 
+# The complete set of roster slots a lineup needs -- mirrors ROSTER_SLOTS in
+# the app's types.ts. Used below to tell "this week is genuinely filled"
+# apart from "this week has some stray rows but isn't actually done."
+LINEUP_SLOTS = {"QB", "RB1", "RB2", "WR1", "WR2", "TE", "FLEX", "K", "DST"}
 
 def process_team(supabase, team_id, team_name, pool, prior_pool, now_utc):
     existing = run(
         supabase.table("lineups")
-        .select("week, player_id")
+        .select("week, slot, player_id")
         .eq("team_id", team_id)
         .eq("season", SEASON)
     ).data
-    filled_weeks = {row["week"] for row in existing}
+
+    # A week only counts as "already handled" once every slot has a row --
+    # not just once it has *any* row. DST only needs the season schedule
+    # (which nflverse publishes far ahead of time) while the other 8 slots
+    # need that week's roster snapshot (which sometimes isn't published
+    # yet even after the schedule is) -- so a run can catch a week in a
+    # half-published state where only DST is fillable. Before this fix,
+    # that produced a lineup with just a DST row, which then made `week in
+    # filled_weeks` true forever -- the other 8 slots could never be
+    # revisited even once the roster data showed up, because the old check
+    # considered any row at all proof the week was done.
+    slots_by_week = {}
+    for row in existing:
+        slots_by_week.setdefault(row["week"], set()).add(row["slot"])
+    filled_weeks = {w for w, slots in slots_by_week.items() if slots >= LINEUP_SLOTS}
     used_players = {row["player_id"] for row in existing if row["player_id"]}
 
     newly_filled = []
@@ -568,9 +586,14 @@ def process_team(supabase, team_id, team_name, pool, prior_pool, now_utc):
         rank_df = rank_pool(pool, week, prior_season_pool=prior_pool if week == 1 else None)
         lineup = auto_fill_lineup(used_players, pool_week, rank_df)
 
+        # Only insert slots this week doesn't already have a row for -- a
+        # week can arrive here partially filled (see the comment above),
+        # and blindly re-inserting an existing slot would hit lineups'
+        # unique constraint and crash the run.
+        existing_slots = slots_by_week.get(week, set())
         rows = []
         for slot, player_id in lineup.items():
-            if player_id is None:
+            if player_id is None or slot in existing_slots:
                 continue
             rows.append({
                 "team_id": team_id, "season": SEASON, "week": week,
