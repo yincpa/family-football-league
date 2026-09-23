@@ -502,9 +502,6 @@ def upsert_nfl_players(supabase, pool):
 
 def upsert_player_week_stats(supabase, pool):
     now_utc = pd.Timestamp.now(tz="UTC")
-    print(f"DEBUG weeks in pool: {sorted(pool['week'].dropna().unique().tolist())}")
-    print(f"DEBUG week 3 pool rows: {len(pool[pool['week'] == 3])}")
-    print(f"DEBUG week 2 max kickoff: {pool[pool['week'] == 2]['kickoff'].max()} | now_utc: {now_utc}")
     rows = []
     for _, r in pool.iterrows():
         if pd.isna(r["player_id"]):
