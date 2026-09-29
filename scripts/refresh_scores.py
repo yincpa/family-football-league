@@ -198,6 +198,53 @@ def add_kickoff_utc(games):
     return games
 
 
+def fetch_injury_status(season, max_week=MAX_WEEK):
+    """
+    This week's official NFL injury report designation per player, from
+    nflverse's injuries_{season}.csv -- one row per player per week
+    (gsis_id, week, report_status), where report_status is "Out",
+    "Doubtful", "Questionable", or blank when a player has no designation
+    that week. Merged into the pool by (player_id, week) in
+    build_weekly_pool/build_preseason_pool below, then carried straight
+    through to player_week_stats.report_status (see add-injury-status.sql)
+    -- purely informational on the app side, doesn't affect auto-fill.
+
+    Wrapped in a try/except rather than letting a missing/malformed file
+    break the whole run: this is a "nice to have" annotation, not core
+    scoring data, so if nflverse hasn't published it yet (e.g. deep
+    preseason) the pipeline should still upsert everything else normally,
+    just without injury badges for that run.
+
+    Also defends against a report_status value the app's SQL check
+    constraint doesn't know about (add-injury-status.sql only allows
+    Out/Doubtful/Questionable) -- an unrecognized value is dropped with a
+    warning rather than crashing the whole scheduled job over one row.
+    """
+    try:
+        inj = fetch_csv(f"{BASE}/injuries/injuries_{season}.csv")
+    except Exception as e:
+        print(f"  couldn't fetch injury report ({e}) -- skipping for this run.")
+        return pd.DataFrame(columns=["player_id", "week", "report_status"])
+
+    inj = inj[(inj["season"] == season) & (inj["week"] <= max_week)].copy()
+    inj = inj.rename(columns={"gsis_id": "player_id"})
+    inj["report_status"] = inj["report_status"].replace("", pd.NA)
+
+    valid = {"Out", "Doubtful", "Questionable"}
+    bad = inj[~inj["report_status"].isin(valid) & inj["report_status"].notna()]
+    if not bad.empty:
+        print(f"  warning: dropping {len(bad)} injury row(s) with an unrecognized "
+              f"report_status: {sorted(bad['report_status'].unique())}")
+        inj = inj[inj["report_status"].isin(valid) | inj["report_status"].isna()]
+
+    inj = inj[["player_id", "week", "report_status"]].dropna(subset=["player_id"])
+    # A player could in principle appear twice for the same week if nflverse
+    # re-publishes a corrected report -- keep the latest row rather than
+    # erroring on the merge below.
+    inj = inj.drop_duplicates(subset=["player_id", "week"], keep="last")
+    return inj
+
+
 def build_weekly_pool(season, max_week=MAX_WEEK):
     games = fetch_csv(f"{BASE}/schedules/games.csv")
     games = games[games["season"] == season].copy()
@@ -274,6 +321,13 @@ def build_weekly_pool(season, max_week=MAX_WEEK):
     ]].rename(columns={"opp": "opponent"})
 
     pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
+
+    # Attach this week's official injury designation (Out/Doubtful/
+    # Questionable, or NaN) by (player_id, week) -- see fetch_injury_status
+    # above. DST rows and any player with no designation just get NaN,
+    # which upsert_player_week_stats below turns into a plain null.
+    injuries = fetch_injury_status(season, max_week)
+    pool = pool.merge(injuries, on=["player_id", "week"], how="left")
 
     # A week that hasn't been played yet has NO rows here at all, not just
     # missing points -- pw/tw (the stats files merged in above) only ever
@@ -378,7 +432,15 @@ def build_preseason_pool(season, max_week=MAX_WEEK):
          "is_home", "headshot_url", *RAW_DST_COLS, "points_allowed"]
     ]
 
-    return pd.concat([offense_pool, dst_pool], ignore_index=True), schedule
+    pool = pd.concat([offense_pool, dst_pool], ignore_index=True)
+
+    # Same injury merge as build_weekly_pool -- keeps this function's
+    # output the same shape either way, since build_weekly_pool uses this
+    # function's result as its "shell pool" fallback for future weeks.
+    injuries = fetch_injury_status(season, max_week)
+    pool = pool.merge(injuries, on=["player_id", "week"], how="left")
+
+    return pool, schedule
 
 
 # ---------------------------------------------------------------------
@@ -517,6 +579,10 @@ def upsert_player_week_stats(supabase, pool):
             "game_final": bool(pd.notna(kickoff) and kickoff <= now_utc),
             "active": bool(r["active"]) if pd.notna(r["active"]) else False,
             "fantasy_points": round(float(r["fantasy_points"]), 2) if pd.notna(r["fantasy_points"]) else 0.0,
+            # This week's official injury designation, or null if this
+            # player has none (or the injuries file was unavailable this
+            # run -- see fetch_injury_status).
+            "report_status": r["report_status"] if pd.notna(r.get("report_status")) else None,
         }
         # Raw box-score stats (see RAW_STAT_COLS) — not every column applies
         # to every position (e.g. a QB has no fg_made), those come through
