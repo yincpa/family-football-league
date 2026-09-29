@@ -3,6 +3,7 @@ import type {
   AvailablePlayer,
   CommissionedLeague,
   CommissionerTeamRow,
+  InjuryReportStatus,
   LeagueMessage,
   LeagueTeamOption,
   Lineup,
@@ -331,6 +332,10 @@ async function getSeasonToDateStats(
  * that must never offer an already-used player as a pick -- the Swap
  * dropdown on My Lineup -- filters `alreadyUsedByYou` back out itself; see
  * getEligibleCandidates below.
+ *
+ * Also carries this week's `injury_status` straight off player_week_stats
+ * (see InjuryReportStatus) -- purely informational, doesn't filter or
+ * reorder anything, so an Out player still shows up like any other.
  */
 export async function getAvailablePlayers(
   supabase: SupabaseClient,
@@ -366,6 +371,7 @@ export async function getAvailablePlayers(
       locked: row.kickoff ? new Date(row.kickoff).getTime() <= now : false,
       avg_points: seasonStats.get(row.player_id)?.avg_points ?? null,
       alreadyUsedByYou: unavailable.has(row.player_id),
+      injury_status: (row.report_status as InjuryReportStatus | null) ?? null,
       season: seasonStats.get(row.player_id) ?? null,
       pass_yards: row.pass_yards,
       pass_tds: row.pass_tds,
