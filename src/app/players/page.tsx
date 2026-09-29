@@ -8,8 +8,32 @@ import {
   getLatestFilledWeek,
   getMyTeamId,
 } from "@/lib/queries";
-import type { AvailablePlayer, Position } from "@/lib/types";
+import type { AvailablePlayer, InjuryReportStatus, Position } from "@/lib/types";
 import WeekPicker from "@/components/WeekPicker";
+
+// Single-letter badge for this week's official injury designation --
+// O(ut)/D(oubtful)/Q(uestionable), or nothing at all when a player has no
+// designation. Deliberately its own small bordered pill (not just colored
+// text) so it still reads clearly next to a name even when the whole row is
+// already red from alreadyUsedByYou -- a plain red letter would disappear
+// into a red row, a bordered badge doesn't. Hover shows the full word.
+const INJURY_LETTER: Record<InjuryReportStatus, string> = {
+  Out: "O",
+  Doubtful: "D",
+  Questionable: "Q",
+};
+
+function InjuryBadge({ status }: { status: InjuryReportStatus | null }) {
+  if (!status) return null;
+  return (
+    <span
+      title={status}
+      className="inline-flex items-center justify-center w-[17px] h-[17px] rounded border border-red-300 bg-red-100 text-[10px] font-bold leading-none text-red-700 shrink-0"
+    >
+      {INJURY_LETTER[status]}
+    </span>
+  );
+}
 
 type SortKey = keyof AvailablePlayer;
 
@@ -144,6 +168,7 @@ function renderCell(p: AvailablePlayer, key: SortKey, mode: StatsMode) {
             <span className="w-6 h-6 rounded-full bg-neutral-100 shrink-0 inline-block" />
           )}
           {p.full_name}
+          <InjuryBadge status={p.injury_status} />
         </span>
       );
     case "position":
@@ -349,7 +374,10 @@ function PlayersTable() {
       <p className="text-sm text-neutral-500 mb-4">
         Every active player this week, including ones you&apos;ve already used
         (shown in red, marked &quot;Used&quot;) so you can compare stats even
-        though they&apos;re no longer pickable. Pick a position to compare,
+        though they&apos;re no longer pickable. A red O/D/Q badge next to a
+        name means Out/Doubtful/Questionable on this week&apos;s official
+        injury report (hover for the full word) -- informational only, it
+        doesn&apos;t stop you from starting them. Pick a position to compare,
         click a column header to sort.
       </p>
 
