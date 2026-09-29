@@ -3,7 +3,13 @@
 import { Fragment, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getEligibleCandidates } from "@/lib/queries";
-import { ROSTER_SLOTS, SLOT_POSITIONS, type Slot, type AvailablePlayer } from "@/lib/types";
+import {
+  ROSTER_SLOTS,
+  SLOT_POSITIONS,
+  type Slot,
+  type AvailablePlayer,
+  type InjuryReportStatus,
+} from "@/lib/types";
 
 export type RosterRow = {
   slot: Slot;
@@ -15,6 +21,11 @@ export type RosterRow = {
   opponent: string | null;
   opponentIsHome: boolean | null;
   locked: boolean;
+  // This week's official injury designation for whoever's in this slot, or
+  // null if there's no designation (or the slot is empty) -- same source
+  // and same meaning as AvailablePlayer.injury_status on the Players tab.
+  // Purely informational: doesn't lock the slot or change what Swap offers.
+  injuryStatus: InjuryReportStatus | null;
 };
 
 // "vs SEA" for a home game, "@ SEA" for a road game, or null on a bye (no
@@ -24,6 +35,29 @@ export type RosterRow = {
 function formatOpponent(opponent: string | null, isHome: boolean | null): string | null {
   if (!opponent) return null;
   return isHome ? `vs ${opponent}` : `@ ${opponent}`;
+}
+
+// Same small red-bordered O/D/Q badge as the Players tab (see
+// players/page.tsx's InjuryBadge) -- kept as its own copy here rather than
+// a shared import, matching how formatOpponent above is already duplicated
+// per-file in this codebase. A bordered pill rather than plain red text so
+// it still reads clearly next to a name.
+const INJURY_LETTER: Record<InjuryReportStatus, string> = {
+  Out: "O",
+  Doubtful: "D",
+  Questionable: "Q",
+};
+
+function InjuryBadge({ status }: { status: InjuryReportStatus | null }) {
+  if (!status) return null;
+  return (
+    <span
+      title={status}
+      className="inline-flex items-center justify-center w-[17px] h-[17px] rounded border border-red-300 bg-red-100 text-[10px] font-bold leading-none text-red-700 shrink-0"
+    >
+      {INJURY_LETTER[status]}
+    </span>
+  );
 }
 
 // Small, round, falls back to a plain gray circle (not an error icon) if a
@@ -119,6 +153,7 @@ export default function RosterTable({
                 opponent: candidate.opponent,
                 opponentIsHome: candidate.opponent_is_home,
                 locked: candidate.locked,
+                injuryStatus: candidate.injury_status,
               }
             : r
         )
@@ -156,6 +191,7 @@ export default function RosterTable({
                   <span className="flex items-center gap-2">
                     {row?.playerId && <Headshot url={row.headshotUrl} alt={row.fullName ?? ""} />}
                     {row?.fullName ?? "— empty —"}
+                    {row?.playerId && <InjuryBadge status={row.injuryStatus} />}
                     {opponentLabel && (
                       <span className="text-xs font-normal text-neutral-400">{opponentLabel}</span>
                     )}
