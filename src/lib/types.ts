@@ -26,6 +26,14 @@ export interface NflPlayer {
   headshot_url: string | null; // from nflverse's roster data; null for obscure/deep-bench players
 }
 
+// The NFL's official weekly injury report designation, straight off
+// nflverse's injuries_{season}.csv (report_status column) -- one row per
+// player per week, refreshed a few days before kickoff each game week.
+// A player with no designation that week comes back null, not a fourth
+// string value, so "no news" and "not loaded yet" both read the same way
+// (nothing shown) rather than needing a special case.
+export type InjuryReportStatus = "Out" | "Doubtful" | "Questionable";
+
 export interface PlayerWeekStats {
   player_id: string;
   season: number;
@@ -36,6 +44,7 @@ export interface PlayerWeekStats {
   game_final: boolean;
   active: boolean;
   fantasy_points: number;
+  report_status: InjuryReportStatus | null; // this week's official injury designation, see InjuryReportStatus
   updated_at: string;
 }
 
@@ -172,6 +181,14 @@ export interface AvailablePlayer extends NflPlayer {
   // compared against the field, but getEligibleCandidates (the Swap
   // dropdown on My Lineup) filters them back out -- you can look, not touch.
   alreadyUsedByYou: boolean;
+  // This week's official NFL injury report designation (Out/Doubtful/
+  // Questionable), or null if this player has no designation this week.
+  // Shown as a small red O/D/Q badge next to the name on the Players tab,
+  // My Lineup, and League Lineups -- purely informational, same as
+  // alreadyUsedByYou it doesn't affect auto-fill or what getEligibleCandidates
+  // offers in the Swap dropdown, so an Out player can still be swapped in if
+  // you decide to (e.g. you know they'll play limited snaps but still start).
+  injury_status: InjuryReportStatus | null;
   pass_yards: number | null;
   pass_tds: number | null;
   pass_ints: number | null;
