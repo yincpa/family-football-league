@@ -5,7 +5,7 @@ import {
   getTeamWeeklyAwards,
   getLatestFilledWeek,
 } from "@/lib/queries";
-import { ROSTER_SLOTS } from "@/lib/types";
+import { ROSTER_SLOTS, type InjuryReportStatus } from "@/lib/types";
 import RosterTable, { type RosterRow } from "@/components/RosterTable";
 import { TeamLogo } from "@/components/TeamLogoEditor";
 import WeekPicker from "@/components/WeekPicker";
@@ -78,6 +78,7 @@ export default async function RosterPage({
     kickoff: string | null;
     opponent: string | null;
     opponent_is_home: boolean | null;
+    report_status: InjuryReportStatus | null;
     nfl_players:
       | { full_name: string; headshot_url: string | null }
       | { full_name: string; headshot_url: string | null }[]
@@ -94,6 +95,7 @@ export default async function RosterPage({
       opponent: string | null;
       opponent_is_home: boolean | null;
       headshot_url: string | null;
+      injury_status: InjuryReportStatus | null;
     }
   > = {};
 
@@ -101,7 +103,7 @@ export default async function RosterPage({
     const { data } = await supabase
       .from("player_week_stats")
       .select(
-        "player_id, fantasy_points, kickoff, opponent, opponent_is_home, nfl_players(full_name, headshot_url)",
+        "player_id, fantasy_points, kickoff, opponent, opponent_is_home, report_status, nfl_players(full_name, headshot_url)",
       )
       .in("player_id", playerIds)
       .eq("season", season)
@@ -121,6 +123,7 @@ export default async function RosterPage({
             opponent: row.opponent,
             opponent_is_home: row.opponent_is_home,
             headshot_url: joined?.headshot_url ?? null,
+            injury_status: row.report_status ?? null,
           },
         ];
       }),
@@ -153,6 +156,7 @@ export default async function RosterPage({
       opponent: details?.opponent ?? null,
       opponentIsHome: details?.opponent_is_home ?? null,
       locked,
+      injuryStatus: details?.injury_status ?? null,
     };
   });
 
