@@ -189,6 +189,16 @@ export interface AvailablePlayer extends NflPlayer {
   // offers in the Swap dropdown, so an Out player can still be swapped in if
   // you decide to (e.g. you know they'll play limited snaps but still start).
   injury_status: InjuryReportStatus | null;
+  // How many of this league's teams currently have this player somewhere in
+  // their own lineup this season (any week, to date) -- lets you see how
+  // widely "owned" a player already is across the league, independent of
+  // whether YOUR team has used them (see alreadyUsedByYou for that one).
+  // leagueTeamCount is the denominator (how many teams are in the league
+  // at all, e.g. 8) -- carried on every row so the UI can show "3/8"
+  // without a second piece of state. Purely informational, same as
+  // injury_status: doesn't filter or reorder anything.
+  leagueUsageCount: number;
+  leagueTeamCount: number;
   pass_yards: number | null;
   pass_tds: number | null;
   pass_ints: number | null;
