@@ -322,6 +322,66 @@ async function getSeasonToDateStats(
 }
 
 /**
+ * For every player who's been placed in ANY team's lineup this season (any
+ * week, to date), how many distinct teams that is -- e.g. 3 means 3 of the
+ * league's teams currently have this player somewhere in their own roster
+ * history this season. Powers the Players tab's "Rostered" column, which is
+ * league-wide and independent of alreadyUsedByYou (your own team's version
+ * of the same idea).
+ *
+ * Looks up the league from `teamId` (teams.league_id) rather than taking a
+ * leagueId directly, so callers that already have a teamId (every page that
+ * calls getAvailablePlayers) don't need to separately resolve and thread a
+ * league id through just for this. Returns a (counts, totalTeams) pair --
+ * totalTeams is the denominator for the "X/8" display, fetched once here
+ * rather than recomputed per player.
+ */
+async function getLeaguePlayerUsageCounts(
+  supabase: SupabaseClient,
+  teamId: string,
+  season: number,
+): Promise<{ counts: Map<string, number>; totalTeams: number }> {
+  const { data: team, error: teamError } = await supabase
+    .from("teams")
+    .select("league_id")
+    .eq("id", teamId)
+    .maybeSingle();
+  if (teamError) throw teamError;
+  if (!team) return { counts: new Map(), totalTeams: 0 };
+
+  const { data: teams, error: teamsError } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("league_id", team.league_id);
+  if (teamsError) throw teamsError;
+  const teamIds = (teams ?? []).map((t) => t.id);
+  if (teamIds.length === 0) return { counts: new Map(), totalTeams: 0 };
+
+  const { data, error } = await supabase
+    .from("lineups")
+    .select("player_id, team_id")
+    .in("team_id", teamIds)
+    .eq("season", season)
+    .not("player_id", "is", null);
+  if (error) throw error;
+
+  const teamsByPlayer = new Map<string, Set<string>>();
+  for (const row of data ?? []) {
+    if (!row.player_id) continue;
+    let set = teamsByPlayer.get(row.player_id);
+    if (!set) {
+      set = new Set();
+      teamsByPlayer.set(row.player_id, set);
+    }
+    set.add(row.team_id);
+  }
+
+  const counts = new Map<string, number>();
+  for (const [playerId, teamSet] of teamsByPlayer) counts.set(playerId, teamSet.size);
+  return { counts, totalTeams: teamIds.length };
+}
+
+/**
  * Every active player with a game this week, joined with this week's stats
  * and this team's season-to-date stats -- the Players tab's full pool.
  *
@@ -335,7 +395,9 @@ async function getSeasonToDateStats(
  *
  * Also carries this week's `injury_status` straight off player_week_stats
  * (see InjuryReportStatus) -- purely informational, doesn't filter or
- * reorder anything, so an Out player still shows up like any other.
+ * reorder anything, so an Out player still shows up like any other. Same
+ * for `leagueUsageCount`/`leagueTeamCount` (see getLeaguePlayerUsageCounts)
+ * -- how many of the league's teams have already rostered this player.
  */
 export async function getAvailablePlayers(
   supabase: SupabaseClient,
@@ -343,7 +405,7 @@ export async function getAvailablePlayers(
   season: number,
   week: number,
 ): Promise<AvailablePlayer[]> {
-  const [unavailable, statsRes, seasonStats] = await Promise.all([
+  const [unavailable, statsRes, seasonStats, leagueUsage] = await Promise.all([
     getUnavailablePlayerIds(supabase, teamId, season, week),
     supabase
       .from("player_week_stats")
@@ -353,6 +415,7 @@ export async function getAvailablePlayers(
       .eq("active", true)
       .not("kickoff", "is", null),
     getSeasonToDateStats(supabase, season, week),
+    getLeaguePlayerUsageCounts(supabase, teamId, season),
   ]);
 
   if (statsRes.error) throw statsRes.error;
@@ -372,6 +435,8 @@ export async function getAvailablePlayers(
       avg_points: seasonStats.get(row.player_id)?.avg_points ?? null,
       alreadyUsedByYou: unavailable.has(row.player_id),
       injury_status: (row.report_status as InjuryReportStatus | null) ?? null,
+      leagueUsageCount: leagueUsage.counts.get(row.player_id) ?? 0,
+      leagueTeamCount: leagueUsage.totalTeams,
       season: seasonStats.get(row.player_id) ?? null,
       pass_yards: row.pass_yards,
       pass_tds: row.pass_tds,
