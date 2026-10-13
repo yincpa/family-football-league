@@ -186,6 +186,12 @@ function renderCell(p: AvailablePlayer, key: SortKey, mode: StatsMode) {
     case "avg_points":
       // Already a season-wide figure either way -- see SEASON_AWARE_KEYS.
       return p.avg_points != null ? p.avg_points.toFixed(2) : "—";
+    case "leagueUsageCount":
+      // Same "season-wide regardless of the toggle" reasoning as avg_points
+      // above -- not in SEASON_AWARE_KEYS, so sorting/getStatValue already
+      // reads the raw number straight off the player either way; this case
+      // just adds the "/8" denominator for display.
+      return `${p.leagueUsageCount}/${p.leagueTeamCount}`;
     case "locked": {
       // A player you've already used takes priority over the game-clock
       // based locked/available distinction -- "Used" in red is the one
@@ -348,6 +354,7 @@ function PlayersTable() {
     ...statColumns,
     { key: "fantasy_points", label: statsMode === "season" ? "Season Pts" : `Wk ${week} Pts` },
     { key: "avg_points", label: "Avg Pts" },
+    { key: "leagueUsageCount", label: "Rostered" },
     { key: "locked", label: "Status" },
   ];
 
@@ -377,8 +384,10 @@ function PlayersTable() {
         though they&apos;re no longer pickable. A red O/D/Q badge next to a
         name means Out/Doubtful/Questionable on this week&apos;s official
         injury report (hover for the full word) -- informational only, it
-        doesn&apos;t stop you from starting them. Pick a position to compare,
-        click a column header to sort.
+        doesn&apos;t stop you from starting them. &quot;Rostered&quot; shows
+        how many of the league&apos;s teams have already used that player
+        this season (e.g. 3/8) -- also informational, same deal. Pick a
+        position to compare, click a column header to sort.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-3">
