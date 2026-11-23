@@ -8,21 +8,28 @@ name: Refresh scores and auto-fill lineups
 # ~1 hour wobble at the edges), which is fine here: better to run a few
 # extra times with nothing new to report than to miss a window.
 #
+# Minutes are offset to :06/:36 rather than :00/:30 on purpose: GitHub's
+# scheduler is most congested right on the hour/half-hour, since that's
+# when nearly every other repo's cron jobs fire too, and overloaded runs
+# get silently skipped (not just delayed). Landing a few minutes off that
+# mark makes it much less likely a run gets dropped during Sunday
+# afternoon, which is GitHub's single busiest scheduling window.
+#
 # workflow_dispatch lets you (or Claude) trigger a run manually any time
 # from the Actions tab on GitHub, e.g. to test this without waiting for a
 # scheduled window.
 on:
   schedule:
     # Thursday Night Football window (~7pm-midnight ET Thursday)
-    - cron: "*/30 23 * * 4"
-    - cron: "*/30 0-4 * * 5"
+    - cron: "6,36 23 * * 4"
+    - cron: "6,36 0-4 * * 5"
     # Sunday slate, early games through Sunday Night Football
-    - cron: "*/30 16-23 * * 0"
-    - cron: "*/30 0-4 * * 1"
+    - cron: "6,36 16-23 * * 0"
+    - cron: "6,36 0-4 * * 1"
     # Monday Night Football window
-    - cron: "*/30 23 * * 1"
-    - cron: "*/30 0-4 * * 2"
-    - cron: "0 13 * * *"
+    - cron: "6,36 23 * * 1"
+    - cron: "6,36 0-4 * * 2"
+    - cron: "13 13 * * *"
   workflow_dispatch:
     inputs:
       season:
